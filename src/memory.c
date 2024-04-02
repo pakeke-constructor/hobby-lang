@@ -226,7 +226,7 @@ static void markRoots() {
   }
 
   hl_markTable(&vm.globals);
-  hl_markCompilerRoots();
+  hl_markCompilerRoots(&vm.parser);
 }
 
 static void traceReferences() {

@@ -29,9 +29,12 @@ struct Attack {
   }
 
   func displayStats() {
-    print("Type: " .. getAttackTypeString(self.type));
-    print("Damage: " .. toString(self.damage));
-    print("Piercing: " .. toString(self.piercing * 100) .. "%");
+    print("Type: ");
+    print(getAttackTypeString(self.type));
+    print("Damage: ");
+    print(self.damage);
+    print("Piercing: ");
+    print(self.piercing * 100);
   }
 }
 

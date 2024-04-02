@@ -5,6 +5,7 @@
 #include "table.h"
 #include "value.h"
 #include "object.h"
+#include "compiler.h"
 
 #define hl_FRAMES_MAX 64
 #define hl_STACK_MAX (hl_FRAMES_MAX * hl_U8_COUNT)
@@ -33,6 +34,8 @@ struct hl_Vm {
   s32 grayCount;
   s32 grayCapacity;
   struct hl_Obj** grayStack;
+
+  struct hl_Parser parser;
 };
 
 enum hl_InterpretResult {

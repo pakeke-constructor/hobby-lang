@@ -746,7 +746,7 @@ static enum hl_InterpretResult run() {
 }
 
 enum hl_InterpretResult hl_interpret(const char* source) {
-  struct hl_Function* function = hl_compile(source);
+  struct hl_Function* function = hl_compile(&vm.parser, source);
   if (function == NULL) {
     return hl_RES_COMPILE_ERR;
   }

@@ -17,14 +17,7 @@
 #include "debug.h"
 #endif
 
-struct Parser {
-  struct hl_Token current;
-  struct hl_Token previous;
-  bool hadError;
-  bool panicMode;
-};
-
-enum Precedence {
+enum hl_Precedence {
   PREC_NONE,
   PREC_ASSIGNMENT,
   PREC_OR,
@@ -39,72 +32,23 @@ enum Precedence {
   PREC_PRIMARY,
 };
 
-typedef void (*ParseFn)(bool canAssign);
+typedef void (*ParseFn)(struct hl_Parser* parser, bool canAssign);
 
-struct ParseRule {
+struct hl_ParseRule {
   ParseFn prefix;
   ParseFn infix;
-  enum Precedence precedence;
+  enum hl_Precedence precedence;
 };
 
-struct Loop {
-  s32 start;
-  s32 bodyStart;
-  s32 scopeDepth;
-  struct Loop* enclosing;
-};
-
-struct Local {
-  struct hl_Token name;
-  s32 depth;
-  bool isCaptured;
-};
-
-struct CompilerUpvalue {
-  u8 index;
-  bool isLocal;
-};
-
-enum FunctionType {
-  FUNCTION_TYPE_FUNCTION,
-  FUNCTION_TYPE_METHOD,
-  FUNCTION_TYPE_SCRIPT,
-};
-
-struct Compiler {
-  struct Compiler* enclosing;
-
-  struct hl_Function* function;
-  enum FunctionType type;
-
-  struct Local locals[hl_U8_COUNT];
-  struct Loop* loop;
-  s32 localCount;
-  struct CompilerUpvalue upvalues[hl_U8_COUNT];
-  s32 scopeDepth;
-};
-
-struct StructField {
-  struct hl_Token name;
-};
-
-struct StructCompiler {
-  struct StructCompiler* enclosing;
-};
-
-struct Parser parser;
-struct Compiler* currentCompiler = NULL;
-struct StructCompiler* currentStruct = NULL;
-
-static struct hl_Chunk* currentChunk() {
-  return &currentCompiler->function->chunk;
+static struct hl_Chunk* currentChunk(struct hl_Parser* parser) {
+  return &parser->compiler->function->chunk;
 }
 
-static void errorAt(struct hl_Token* token, const char* message) {
-  if (parser.panicMode) {
+static void errorAt(struct hl_Parser* parser, struct hl_Token* token, const char* message) {
+  if (parser->panicMode) {
     return;
   }
-  parser.panicMode = true;
+  parser->panicMode = true;
 
   fprintf(stderr, "[line %d] Error", token->line);
 
@@ -115,110 +59,112 @@ static void errorAt(struct hl_Token* token, const char* message) {
   }
 
   fprintf(stderr, ": %s\n", message);
-  parser.hadError = true;
+  parser->hadError = true;
 }
 
-static void error(const char* message) {
-  errorAt(&parser.previous, message);
+static void error(struct hl_Parser* parser, const char* message) {
+  errorAt(parser, &parser->previous, message);
 }
 
-static void errorAtCurrent(const char* message) {
-  errorAt(&parser.current, message);
+static void errorAtCurrent(struct hl_Parser* parser, const char* message) {
+  errorAt(parser, &parser->current, message);
 }
 
-static void advance() {
-  parser.previous = parser.current;
+static void advance(struct hl_Parser* parser) {
+  parser->previous = parser->current;
 
   while (true) {
-    parser.current = hl_nextToken();
-    if (parser.current.type != hl_TOKEN_ERROR) {
+    parser->current = hl_nextToken();
+    if (parser->current.type != hl_TOKEN_ERROR) {
       break;
     }
 
-    errorAtCurrent(parser.current.start);
+    errorAtCurrent(parser, parser->current.start);
   }
 }
 
-static void consume(enum hl_TokenType type, const char* message) {
-  if (parser.current.type == type) {
-    advance();
+static void consume(struct hl_Parser* parser, enum hl_TokenType type, const char* message) {
+  if (parser->current.type == type) {
+    advance(parser);
     return;
   }
 
-  errorAtCurrent(message);
+  errorAtCurrent(parser, message);
 }
 
-static bool check(enum hl_TokenType type) {
-  return parser.current.type == type;
+static bool check(struct hl_Parser* parser, enum hl_TokenType type) {
+  return parser->current.type == type;
 }
 
-static bool match(enum hl_TokenType type) {
-  if (!check(type)) {
+static bool match(struct hl_Parser* parser, enum hl_TokenType type) {
+  if (!check(parser, type)) {
     return false;
   }
-  advance();
+  advance(parser);
   return true;
 }
 
-static void emitByte(u8 byte) {
-  hl_writeChunk(currentChunk(), byte, parser.previous.line);
+static void emitByte(struct hl_Parser* parser, u8 byte) {
+  hl_writeChunk(currentChunk(parser), byte, parser->previous.line);
 }
 
-static void emitBytes(u8 byte1, u8 byte2) {
-  emitByte(byte1);
-  emitByte(byte2);
+static void emitBytes(struct hl_Parser* parser, u8 byte1, u8 byte2) {
+  emitByte(parser, byte1);
+  emitByte(parser, byte2);
 }
 
-static s32 emitJump(u8 byte) {
-  emitByte(byte);
-  emitByte(0xff);
-  emitByte(0xff);
-  return currentChunk()->count - 2;
+static s32 emitJump(struct hl_Parser* parser, u8 byte) {
+  emitByte(parser, byte);
+  emitByte(parser, 0xff);
+  emitByte(parser, 0xff);
+  return currentChunk(parser)->count - 2;
 }
 
-static void patchJump(s32 offset) {
-  s32 jump = currentChunk()->count - offset - 2;
+static void patchJump(struct hl_Parser* parser, s32 offset) {
+  s32 jump = currentChunk(parser)->count - offset - 2;
   if (jump >= UINT16_MAX) {
-    error("Too much code to jump over. Why?");
+    error(parser, "Too much code to jump over. Why?");
   }
 
-  currentChunk()->code[offset] = (jump >> 8) & 0xff;
-  currentChunk()->code[offset + 1] = jump & 0xff;
+  currentChunk(parser)->code[offset] = (jump >> 8) & 0xff;
+  currentChunk(parser)->code[offset + 1] = jump & 0xff;
 }
 
-static void emitLoop(s32 loopStart) {
-  emitByte(hl_OP_LOOP);
+static void emitLoop(struct hl_Parser* parser, s32 loopStart) {
+  emitByte(parser, hl_OP_LOOP);
 
-  s32 offset = currentChunk()->count - loopStart + 2;
+  s32 offset = currentChunk(parser)->count - loopStart + 2;
   if (offset > UINT16_MAX) {
-    error("Loop is too big. I'm not quite sure why you made a loop this big.");
+    error(parser, "Loop is too big. I'm not quite sure why you made a loop this big.");
   }
 
-  emitByte((offset >> 8) & 0xff);
-  emitByte(offset & 0xff);
+  emitByte(parser, (offset >> 8) & 0xff);
+  emitByte(parser, offset & 0xff);
 }
 
-static void emitReturn() {
-  emitByte(hl_OP_NIL);
-  emitByte(hl_OP_RETURN);
+static void emitReturn(struct hl_Parser* parser) {
+  emitByte(parser, hl_OP_NIL);
+  emitByte(parser, hl_OP_RETURN);
 }
 
-static u8 makeConstant(hl_Value value) {
-  s32 constant = hl_addConstant(currentChunk(), value);
+static u8 makeConstant(struct hl_Parser* parser, hl_Value value) {
+  s32 constant = hl_addConstant(currentChunk(parser), value);
   if (constant > UINT8_MAX) {
-    error("Too many constants in the global scope or functions.");
+    error(parser, "Too many constants in the global scope or functions.");
     return 0;
   }
 
   return (u8)constant;
 }
 
-static void emitConstant(hl_Value value) {
-  emitBytes(hl_OP_CONSTANT, makeConstant(value));
+static void emitConstant(struct hl_Parser* parser, hl_Value value) {
+  emitBytes(parser, hl_OP_CONSTANT, makeConstant(parser, value));
 }
 
-static void initCompiler(struct Compiler* compiler, enum FunctionType type) {
-  compiler->enclosing = currentCompiler;
+static void initCompiler(struct hl_Parser* parser,
+                         struct hl_Compiler* compiler,
+                         enum hl_FunctionType type) {
+  compiler->enclosing = parser->compiler;
 
   compiler->function = NULL;
   compiler->type = type;
@@ -227,19 +173,20 @@ static void initCompiler(struct Compiler* compiler, enum FunctionType type) {
   compiler->scopeDepth = 0;
   compiler->function = hl_newFunction();
   compiler->loop = NULL;
-  currentCompiler = compiler;
+  parser->compiler = compiler;
 
   if (type != FUNCTION_TYPE_SCRIPT) {
-    struct hl_Token name = parser.previous;
+    struct hl_Token name = parser->previous;
     if (name.type == hl_TOKEN_IDENTIFIER) {
-      currentCompiler->function->name = hl_copyString(
+      parser->compiler->function->name = hl_copyString(
           name.start, name.length);
     } else if (name.type == hl_TOKEN_FUNC) { // lambda
-      currentCompiler->function->name = hl_copyString("@lambda@", 8);
+      parser->compiler->function->name = hl_copyString("@lambda@", 8);
     }
   }
 
-  struct Local* local = &currentCompiler->locals[currentCompiler->localCount++];
+  struct hl_Local* local = 
+      &parser->compiler->locals[parser->compiler->localCount++];
   local->depth = 0;
   local->isCaptured = false;
   if (type != FUNCTION_TYPE_FUNCTION) {
@@ -251,23 +198,23 @@ static void initCompiler(struct Compiler* compiler, enum FunctionType type) {
   }
 }
 
-static struct hl_Function* endCompiler() {
-  emitReturn();
-  struct hl_Function* function = currentCompiler->function;
+static struct hl_Function* endCompiler(struct hl_Parser* parser) {
+  emitReturn(parser);
+  struct hl_Function* function = parser->compiler->function;
 
 #ifdef hl_DEBUG_PRINT_CODE
-  if (!parser.hadError) {
+  if (!parser->hadError) {
     hl_disassembleChunk(
         currentChunk(),
         function, function->name != NULL ? function->name->chars : "<script>");
   }
 #endif
 
-  currentCompiler = currentCompiler->enclosing;
+  parser->compiler = parser->compiler->enclosing;
   return function;
 }
 
-s32 opCodeArgCount(enum hl_OpCode opCode, s32 ip) {
+s32 opCodeArgCount(struct hl_Parser* parser, enum hl_OpCode opCode, s32 ip) {
   switch (opCode) {
     case hl_OP_BREAK:
     case hl_OP_NIL:
@@ -325,24 +272,25 @@ s32 opCodeArgCount(enum hl_OpCode opCode, s32 ip) {
     case hl_OP_ENUM_VALUE:
       return 2;
     case hl_OP_CLOSURE: {
-      u8 index = currentChunk()->code[ip + 1];
+      u8 index = currentChunk(parser)->code[ip + 1];
       struct hl_Function* function = hl_AS_FUNCTION(
-          currentChunk()->constants.values[index]);
+          currentChunk(parser)->constants.values[index]);
       return 1 + function->upvalueCount * 2;
     }
   }
   return -1;
 }
 
-static s32 discardLocals() {
+static s32 discardLocals(struct hl_Parser* parser) {
   s32 discarded = 0;
-  while (currentCompiler->localCount > 0
-      && currentCompiler->locals[currentCompiler->localCount - 1].depth
-         > currentCompiler->scopeDepth) {
-    if (currentCompiler->locals[currentCompiler->localCount - discarded - 1].isCaptured) {
-      emitByte(hl_OP_CLOSE_UPVALUE);
+  while (parser->compiler->localCount > 0
+      && parser->compiler->locals[parser->compiler->localCount - 1].depth
+         > parser->compiler->scopeDepth) {
+    if (parser->compiler->locals
+        [parser->compiler->localCount - discarded - 1].isCaptured) {
+      emitByte(parser, hl_OP_CLOSE_UPVALUE);
     } else {
-      emitByte(hl_OP_POP);
+      emitByte(parser, hl_OP_POP);
     }
     discarded++;
   }
@@ -350,69 +298,69 @@ static s32 discardLocals() {
   return discarded;
 }
 
-static void beginLoop(struct Loop* loop) {
-  loop->start = currentChunk()->count;
-  loop->scopeDepth = currentCompiler->scopeDepth;
-  loop->enclosing = currentCompiler->loop;
-  currentCompiler->loop = loop;
+static void beginLoop(struct hl_Parser* parser, struct hl_Loop* loop) {
+  loop->start = currentChunk(parser)->count;
+  loop->scopeDepth = parser->compiler->scopeDepth;
+  loop->enclosing = parser->compiler->loop;
+  parser->compiler->loop = loop;
 }
 
-static void endLoop(struct Loop* loop) {
-  s32 end = currentChunk()->count;
+static void endLoop(struct hl_Parser* parser, struct hl_Loop* loop) {
+  s32 end = currentChunk(parser)->count;
 
   // Go through the whole body of the loop, find any jumps to the end and patch
   // them in.
   for (s32 instruction = loop->bodyStart; instruction < end;) {
-    enum hl_OpCode opCode = currentChunk()->code[instruction];
+    enum hl_OpCode opCode = currentChunk(parser)->code[instruction];
     if (opCode == hl_OP_BREAK) {
-      currentChunk()->code[instruction] = hl_OP_JUMP;
-      patchJump(instruction + 1);
+      currentChunk(parser)->code[instruction] = hl_OP_JUMP;
+      patchJump(parser, instruction + 1);
       instruction += 3;
     } else {
-      instruction += opCodeArgCount(opCode, instruction) + 1;
+      instruction += opCodeArgCount(parser, opCode, instruction) + 1;
     }
   }
 
-  currentCompiler->loop = loop->enclosing;
+  parser->compiler->loop = loop->enclosing;
 }
 
-static void beginScope() {
-  currentCompiler->scopeDepth++;
+static void beginScope(struct hl_Parser* parser) {
+  parser->compiler->scopeDepth++;
 }
 
-static void endScope() {
-  s32 discarded = discardLocals();
-  currentCompiler->localCount -= discarded;
-  currentCompiler->scopeDepth--;
+static void endScope(struct hl_Parser* parser) {
+  s32 discarded = discardLocals(parser);
+  parser->compiler->localCount -= discarded;
+  parser->compiler->scopeDepth--;
 }
 
-static void expression();
-static void statement();
-static void declaration();
-static struct ParseRule* getRule(enum hl_TokenType type);
-static void parsePrecedence(enum Precedence precedence);
-static void block();
+static void expression(struct hl_Parser* parser);
+static void statement(struct hl_Parser* parser);
+static void declaration(struct hl_Parser* parser);
+static struct hl_ParseRule* getRule(enum hl_TokenType type);
+static void parsePrecedence(struct hl_Parser* parser, enum hl_Precedence precedence);
+static void block(struct hl_Parser* parser);
 
-static void markInitialized() {
-  if (currentCompiler->scopeDepth == 0) {
+static void markInitialized(struct hl_Parser* parser) {
+  if (parser->compiler->scopeDepth == 0) {
     return;
   }
 
-  currentCompiler->locals[currentCompiler->localCount - 1].depth
-      = currentCompiler->scopeDepth;
+  parser->compiler->locals[parser->compiler->localCount - 1].depth
+      = parser->compiler->scopeDepth;
 }
 
-static void defineVariable(u8 global) {
-  if (currentCompiler->scopeDepth > 0) {
-    markInitialized();
+static void defineVariable(struct hl_Parser* parser, u8 global) {
+  if (parser->compiler->scopeDepth > 0) {
+    markInitialized(parser);
     return;
   }
 
-  emitBytes(hl_OP_DEFINE_GLOBAL, global);
+  emitBytes(parser, hl_OP_DEFINE_GLOBAL, global);
 }
 
-static u8 identifierConstant(struct hl_Token* name) {
-  return makeConstant(hl_NEW_OBJ(hl_copyString(name->start, name->length)));
+static u8 identifierConstant(struct hl_Parser* parser, struct hl_Token* name) {
+  return makeConstant(parser, hl_NEW_OBJ(hl_copyString(name->start, name->length)));
 }
 
 static bool identifiersEqual(struct hl_Token* a, struct hl_Token* b) {
@@ -422,12 +370,12 @@ static bool identifiersEqual(struct hl_Token* a, struct hl_Token* b) {
   return memcmp(a->start, b->start, a->length) == 0;
 }
 
-static s32 resolveLocal(struct Compiler* compiler, struct hl_Token* name) {
+static s32 resolveLocal(struct hl_Parser* parser, struct hl_Compiler* compiler, struct hl_Token* name) {
   for (s32 i = compiler->localCount - 1; i >= 0; i--) {
-    struct Local* local = &compiler->locals[i];
+    struct hl_Local* local = &compiler->locals[i];
     if (identifiersEqual(name, &local->name)) {
       if (local->depth == -1) {
-        error("Can't read local variable in it's own initializer.");
+        error(parser, "Can't read local variable in it's own initializer.");
       }
       return i;
     }
@@ -436,18 +384,18 @@ static s32 resolveLocal(struct Compiler* compiler, struct hl_Token* name) {
   return -1;
 }
 
-static s32 addUpvalue(struct Compiler* compiler, u8 index, bool isLocal) {
+static s32 addUpvalue(struct hl_Parser* parser, struct hl_Compiler* compiler, u8 index, bool isLocal) {
   s32 upvalueCount = compiler->function->upvalueCount;
 
   for (s32 i = 0; i < upvalueCount; i++) {
-    struct CompilerUpvalue* upvalue = &compiler->upvalues[i];
+    struct hl_CompilerUpvalue* upvalue = &compiler->upvalues[i];
     if (upvalue->index == index && upvalue->isLocal == isLocal) {
       return i;
     }
   }
 
   if (upvalueCount == hl_U8_COUNT) {
-    error("Too many upvalues in a function.");
+    error(parser, "Too many upvalues in a function.");
     return 0;
   }
 
@@ -456,374 +404,375 @@ static s32 addUpvalue(struct Compiler* compiler, u8 index, bool isLocal) {
   return compiler->function->upvalueCount++;
 }
 
-static s32 resolveUpvalue(struct Compiler* compiler, struct hl_Token* name) {
+static s32 resolveUpvalue(struct hl_Parser* parser, struct hl_Compiler* compiler, struct hl_Token* name) {
   if (compiler->enclosing == NULL) {
     return -1;
   }
 
-  s32 local = resolveLocal(compiler->enclosing, name);
+  s32 local = resolveLocal(parser, compiler->enclosing, name);
   if (local != -1) {
     compiler->enclosing->locals[local].isCaptured = true;
-    return addUpvalue(compiler, (u8)local, true);
+    return addUpvalue(parser, compiler, (u8)local, true);
   }
 
-  s32 upvalue = resolveUpvalue(compiler->enclosing, name);
+  s32 upvalue = resolveUpvalue(parser, compiler->enclosing, name);
   if (upvalue != -1) {
-    return addUpvalue(compiler, (u8)upvalue, false);
+    return addUpvalue(parser, compiler, (u8)upvalue, false);
   }
 
   return -1;
 }
 
-static void addLocal(struct hl_Token name) {
-  if (currentCompiler->localCount == hl_U8_COUNT) {
-    error("Too many local variables in function.");
+static void addLocal(struct hl_Parser* parser, struct hl_Token name) {
+  if (parser->compiler->localCount == hl_U8_COUNT) {
+    error(parser, "Too many local variables in function.");
     return;
   }
 
-  struct Local* local = &currentCompiler->locals[currentCompiler->localCount++];
+  struct hl_Local* local = 
+      &parser->compiler->locals[parser->compiler->localCount++];
   local->name = name;
   local->isCaptured = false;
   local->depth = -1;
-  local->depth = currentCompiler->scopeDepth;
+  local->depth = parser->compiler->scopeDepth;
 }
 
-static void declareVariable() {
-  if (currentCompiler->scopeDepth == 0) {
+static void declareVariable(struct hl_Parser* parser) {
+  if (parser->compiler->scopeDepth == 0) {
     return;
   }
   
-  struct hl_Token* name = &parser.previous;
+  struct hl_Token* name = &parser->previous;
 
-  for (s32 i = currentCompiler->localCount - 1; i >= 0; i--) {
-    struct Local* local = &currentCompiler->locals[i];
-    if (local->depth != -1 && local->depth < currentCompiler->scopeDepth) {
+  for (s32 i = parser->compiler->localCount - 1; i >= 0; i--) {
+    struct hl_Local* local = &parser->compiler->locals[i];
+    if (local->depth != -1 && local->depth < parser->compiler->scopeDepth) {
       break;
     }
 
     if (identifiersEqual(name, &local->name)) {
-      error("Redefinition of variable.");
+      error(parser, "Redefinition of variable.");
     }
   }
 
-  addLocal(*name);
+  addLocal(parser, *name);
 }
 
-static u8 parseVariable(const char* errorMessage) {
-  consume(hl_TOKEN_IDENTIFIER, errorMessage);
+static u8 parseVariable(struct hl_Parser* parser, const char* errorMessage) {
+  consume(parser, hl_TOKEN_IDENTIFIER, errorMessage);
 
-  declareVariable();
-  if (currentCompiler->scopeDepth > 0) {
+  declareVariable(parser);
+  if (parser->compiler->scopeDepth > 0) {
     return 0;
   }
 
-  return identifierConstant(&parser.previous);
+  return identifierConstant(parser, &parser->previous);
 }
 
-static void grouping(hl_UNUSED bool canAssign) {
-  expression();
-  consume(hl_TOKEN_RPAREN, "Expected ')' after expression.");
+static void grouping(struct hl_Parser* parser, hl_UNUSED bool canAssign) {
+  expression(parser);
+  consume(parser, hl_TOKEN_RPAREN, "Expected ')' after expression.");
 }
 
-static void number(hl_UNUSED bool canAssign) {
-  f64 value = strtod(parser.previous.start, NULL);
-  emitConstant(hl_NEW_NUMBER(value));
+static void number(struct hl_Parser* parser, hl_UNUSED bool canAssign) {
+  f64 value = strtod(parser->previous.start, NULL);
+  emitConstant(parser, hl_NEW_NUMBER(value));
 }
 
-static void string(hl_UNUSED bool canAssign) {
+static void string(struct hl_Parser* parser, hl_UNUSED bool canAssign) {
   emitConstant(
-      hl_NEW_OBJ(
-          hl_copyString(parser.previous.start + 1, parser.previous.length - 2)));
+      parser, 
+      hl_NEW_OBJ(hl_copyString(parser->previous.start + 1, parser->previous.length - 2)));
 }
 
-static void namedVariable(struct hl_Token name, bool canAssign) {
+static void namedVariable(struct hl_Parser* parser, struct hl_Token name, bool canAssign) {
   u8 getter, setter;
-  s32 arg = resolveLocal(currentCompiler, &name);
+  s32 arg = resolveLocal(parser, parser->compiler, &name);
 
   if (arg != -1) {
     getter = hl_OP_GET_LOCAL;
     setter = hl_OP_SET_LOCAL;
-  } else if ((arg = resolveUpvalue(currentCompiler, &name)) != -1) {
+  } else if ((arg = resolveUpvalue(parser, parser->compiler, &name)) != -1) {
     getter = hl_OP_GET_UPVALUE;
     setter = hl_OP_SET_UPVALUE;
   } else {
-    arg = identifierConstant(&name);
+    arg = identifierConstant(parser, &name);
     getter = hl_OP_GET_GLOBAL;
     setter = hl_OP_SET_GLOBAL;
   }
 
 #define COMPOUND_ASSIGNMENT(operator) \
     do { \
-      emitBytes(getter, (u8)arg); \
-      expression(); \
-      emitByte(operator); \
-      emitBytes(setter, (u8)arg); \
+      emitBytes(parser, getter, (u8)arg); \
+      expression(parser); \
+      emitByte(parser, operator); \
+      emitBytes(parser, setter, (u8)arg); \
     } while (false)
 
-  if (canAssign && match(hl_TOKEN_EQUAL)) {
-    expression();
-    emitBytes(setter, (u8)arg);
-  } else if (canAssign && match(hl_TOKEN_PLUS_EQUAL)) {
+  if (canAssign && match(parser, hl_TOKEN_EQUAL)) {
+    expression(parser);
+    emitBytes(parser, setter, (u8)arg);
+  } else if (canAssign && match(parser, hl_TOKEN_PLUS_EQUAL)) {
     COMPOUND_ASSIGNMENT(hl_OP_ADD);
-  } else if (canAssign && match(hl_TOKEN_MINUS_EQUAL)) {
+  } else if (canAssign && match(parser, hl_TOKEN_MINUS_EQUAL)) {
     COMPOUND_ASSIGNMENT(hl_OP_SUBTRACT);
-  } else if (canAssign && match(hl_TOKEN_STAR_EQUAL)) {
+  } else if (canAssign && match(parser, hl_TOKEN_STAR_EQUAL)) {
     COMPOUND_ASSIGNMENT(hl_OP_MULTIPLY);
-  } else if (canAssign && match(hl_TOKEN_SLASH_EQUAL)) {
+  } else if (canAssign && match(parser, hl_TOKEN_SLASH_EQUAL)) {
     COMPOUND_ASSIGNMENT(hl_OP_DIVIDE);
-  } else if (canAssign && match(hl_TOKEN_STAR_STAR_EQUAL)) {
+  } else if (canAssign && match(parser, hl_TOKEN_STAR_STAR_EQUAL)) {
     COMPOUND_ASSIGNMENT(hl_OP_POW);
-  } else if (canAssign && match(hl_TOKEN_PERCENT_EQUAL)) {
+  } else if (canAssign && match(parser, hl_TOKEN_PERCENT_EQUAL)) {
     COMPOUND_ASSIGNMENT(hl_OP_MODULO);
-  } else if (canAssign && match(hl_TOKEN_DOT_DOT_EQUAL)) {
+  } else if (canAssign && match(parser, hl_TOKEN_DOT_DOT_EQUAL)) {
     COMPOUND_ASSIGNMENT(hl_OP_CONCAT);
   } else {
-    emitBytes(getter, (u8)arg);
+    emitBytes(parser, getter, (u8)arg);
   }
 #undef COMPOUND_ASSIGNMENT
 }
 
-static void variable(hl_UNUSED bool canAssign) {
-  struct hl_Token name = parser.previous;
-  if (match(hl_TOKEN_LBRACE)) { // Struct initalization
-    emitBytes(hl_OP_GET_GLOBAL, (u8)identifierConstant(&name));
-    emitByte(hl_OP_INSTANCE);
+static void variable(struct hl_Parser* parser, hl_UNUSED bool canAssign) {
+  struct hl_Token name = parser->previous;
+  if (match(parser, hl_TOKEN_LBRACE)) { // Struct initalization
+    emitBytes(parser, hl_OP_GET_GLOBAL, (u8)identifierConstant(parser, &name));
+    emitByte(parser, hl_OP_INSTANCE);
 
-    if (check(hl_TOKEN_DOT)) {
+    if (check(parser, hl_TOKEN_DOT)) {
       do {
-        consume(hl_TOKEN_DOT, "Expected '.' before identifier.");
-        consume(hl_TOKEN_IDENTIFIER, "Expected identifier.");
-        struct hl_Token name = parser.previous;
-        consume(hl_TOKEN_EQUAL, "Expected '=' after identifier.");
-        expression();
+        consume(parser, hl_TOKEN_DOT, "Expected '.' before identifier.");
+        consume(parser, hl_TOKEN_IDENTIFIER, "Expected identifier.");
+        struct hl_Token name = parser->previous;
+        consume(parser, hl_TOKEN_EQUAL, "Expected '=' after identifier.");
+        expression(parser);
 
-        emitBytes(hl_OP_INIT_PROPERTY, identifierConstant(&name));
+        emitBytes(parser, hl_OP_INIT_PROPERTY, identifierConstant(parser, &name));
 
-        if (!match(hl_TOKEN_COMMA) && !check(hl_TOKEN_RBRACE)) {
-          error("Expected ','.");
+        if (!match(parser, hl_TOKEN_COMMA) && !check(parser, hl_TOKEN_RBRACE)) {
+          error(parser, "Expected ','.");
         }
-      } while (!check(hl_TOKEN_RBRACE) && !check(hl_TOKEN_EOF));
+      } while (!check(parser, hl_TOKEN_RBRACE) && !check(parser, hl_TOKEN_EOF));
     }
 
-    consume(hl_TOKEN_RBRACE, "Unterminated struct initializer.");
+    consume(parser, hl_TOKEN_RBRACE, "Unterminated struct initializer.");
   } else { // Variable reference
-    namedVariable(name, canAssign);
+    namedVariable(parser, name, canAssign);
   }
 }
 
-static void self(hl_UNUSED bool canAssign) {
-  if (currentStruct == NULL) {
-    error("Can only use 'self' inside struct methods.");
+static void self(struct hl_Parser* parser, hl_UNUSED bool canAssign) {
+  if (parser->structCompiler == NULL) {
+    error(parser, "Can only use 'self' inside struct methods.");
     return;
   }
 
-  variable(false);
+  variable(parser, false);
 }
 
-static void unary(hl_UNUSED bool canAssign) {
-  enum hl_TokenType op = parser.previous.type; 
+static void unary(struct hl_Parser* parser, hl_UNUSED bool canAssign) {
+  enum hl_TokenType op = parser->previous.type; 
 
-  parsePrecedence(PREC_UNARY);
+  parsePrecedence(parser, PREC_UNARY);
 
   switch (op) {
-    case hl_TOKEN_MINUS: emitByte(hl_OP_NEGATE); break;
-    case hl_TOKEN_BANG:  emitByte(hl_OP_NOT); break;
+    case hl_TOKEN_MINUS: emitByte(parser, hl_OP_NEGATE); break;
+    case hl_TOKEN_BANG:  emitByte(parser, hl_OP_NOT); break;
     default: return;
   }
 }
 
-static void binary(hl_UNUSED bool canAssign) {
-  enum hl_TokenType op = parser.previous.type;
-  struct ParseRule* rule = getRule(op);
-  parsePrecedence((enum Precedence)(rule->precedence + 1));
+static void binary(struct hl_Parser* parser, hl_UNUSED bool canAssign) {
+  enum hl_TokenType op = parser->previous.type;
+  struct hl_ParseRule* rule = getRule(op);
+  parsePrecedence(parser, (enum hl_Precedence)(rule->precedence + 1));
 
   switch (op) {
-    case hl_TOKEN_PLUS:          emitByte(hl_OP_ADD); break;
-    case hl_TOKEN_MINUS:         emitByte(hl_OP_SUBTRACT); break;
-    case hl_TOKEN_STAR:          emitByte(hl_OP_MULTIPLY); break;
-    case hl_TOKEN_SLASH:         emitByte(hl_OP_DIVIDE); break;
-    case hl_TOKEN_PERCENT:       emitByte(hl_OP_MODULO); break;
-    case hl_TOKEN_DOT_DOT:       emitByte(hl_OP_CONCAT); break;
-    case hl_TOKEN_STAR_STAR:     emitByte(hl_OP_POW); break;
-    case hl_TOKEN_EQUAL_EQUAL:   emitByte(hl_OP_EQUAL); break;
-    case hl_TOKEN_BANG_EQUAL:    emitByte(hl_OP_NOT_EQUAL); break;
-    case hl_TOKEN_GREATER:       emitByte(hl_OP_GREATER); break;
-    case hl_TOKEN_LESS:          emitByte(hl_OP_LESSER); break;
-    case hl_TOKEN_GREATER_EQUAL: emitByte(hl_OP_GREATER_EQUAL); break;
-    case hl_TOKEN_LESS_EQUAL:    emitByte(hl_OP_LESSER_EQUAL); break;
+    case hl_TOKEN_PLUS:          emitByte(parser, hl_OP_ADD); break;
+    case hl_TOKEN_MINUS:         emitByte(parser, hl_OP_SUBTRACT); break;
+    case hl_TOKEN_STAR:          emitByte(parser, hl_OP_MULTIPLY); break;
+    case hl_TOKEN_SLASH:         emitByte(parser, hl_OP_DIVIDE); break;
+    case hl_TOKEN_PERCENT:       emitByte(parser, hl_OP_MODULO); break;
+    case hl_TOKEN_DOT_DOT:       emitByte(parser, hl_OP_CONCAT); break;
+    case hl_TOKEN_STAR_STAR:     emitByte(parser, hl_OP_POW); break;
+    case hl_TOKEN_EQUAL_EQUAL:   emitByte(parser, hl_OP_EQUAL); break;
+    case hl_TOKEN_BANG_EQUAL:    emitByte(parser, hl_OP_NOT_EQUAL); break;
+    case hl_TOKEN_GREATER:       emitByte(parser, hl_OP_GREATER); break;
+    case hl_TOKEN_LESS:          emitByte(parser, hl_OP_LESSER); break;
+    case hl_TOKEN_GREATER_EQUAL: emitByte(parser, hl_OP_GREATER_EQUAL); break;
+    case hl_TOKEN_LESS_EQUAL:    emitByte(parser, hl_OP_LESSER_EQUAL); break;
     default: return;
   }
 }
 
-static u8 argumentList() {
+static u8 argumentList(struct hl_Parser* parser) {
   u8 argCount = 0;
-  if (!check(hl_TOKEN_RPAREN)) {
+  if (!check(parser, hl_TOKEN_RPAREN)) {
     do {
-      expression();
+      expression(parser);
       if (argCount == 255) {
-        error("Can't have more than 255 arguments.");
+        error(parser, "Can't have more than 255 arguments.");
       }
       argCount++;
-    } while (match(hl_TOKEN_COMMA));
+    } while (match(parser, hl_TOKEN_COMMA));
   }
-  consume(hl_TOKEN_RPAREN, "Unclosed call.");
+  consume(parser, hl_TOKEN_RPAREN, "Unclosed call.");
   return argCount;
 }
 
-static void call(hl_UNUSED bool canAssign) {
-  u8 argCount = argumentList();
-  emitBytes(hl_OP_CALL, argCount);
+static void call(struct hl_Parser* parser, hl_UNUSED bool canAssign) {
+  u8 argCount = argumentList(parser);
+  emitBytes(parser, hl_OP_CALL, argCount);
 }
 
-static void dot(bool canAssign) {
-  consume(hl_TOKEN_IDENTIFIER, "Expected property name.");
-  u8 name = identifierConstant(&parser.previous);
+static void dot(struct hl_Parser* parser, bool canAssign) {
+  consume(parser, hl_TOKEN_IDENTIFIER, "Expected property name.");
+  u8 name = identifierConstant(parser, &parser->previous);
 
 #define COMPOUND_ASSIGNMENT(operator) \
     do { \
-      emitBytes(hl_OP_PUSH_PROPERTY, name); \
-      expression(); \
-      emitByte(operator); \
-      emitBytes(hl_OP_SET_PROPERTY, name); \
+      emitBytes(parser, hl_OP_PUSH_PROPERTY, name); \
+      expression(parser); \
+      emitByte(parser, operator); \
+      emitBytes(parser, hl_OP_SET_PROPERTY, name); \
     } while (false)
 
-  if (canAssign && match(hl_TOKEN_EQUAL)) {
-    expression();
-    emitBytes(hl_OP_SET_PROPERTY, name);
-  } else if (match(hl_TOKEN_LPAREN)) {
-    u8 argCount = argumentList();
-    emitBytes(hl_OP_INVOKE, name);
-    emitByte(argCount);
-  } else if (canAssign && match(hl_TOKEN_PLUS_EQUAL)) {
+  if (canAssign && match(parser, hl_TOKEN_EQUAL)) {
+    expression(parser);
+    emitBytes(parser, hl_OP_SET_PROPERTY, name);
+  } else if (match(parser, hl_TOKEN_LPAREN)) {
+    u8 argCount = argumentList(parser);
+    emitBytes(parser, hl_OP_INVOKE, name);
+    emitByte(parser, argCount);
+  } else if (canAssign && match(parser, hl_TOKEN_PLUS_EQUAL)) {
     COMPOUND_ASSIGNMENT(hl_OP_ADD);
-  } else if (canAssign && match(hl_TOKEN_MINUS_EQUAL)) {
+  } else if (canAssign && match(parser, hl_TOKEN_MINUS_EQUAL)) {
     COMPOUND_ASSIGNMENT(hl_OP_SUBTRACT);
-  } else if (canAssign && match(hl_TOKEN_STAR_EQUAL)) {
+  } else if (canAssign && match(parser, hl_TOKEN_STAR_EQUAL)) {
     COMPOUND_ASSIGNMENT(hl_OP_MULTIPLY);
-  } else if (canAssign && match(hl_TOKEN_SLASH_EQUAL)) {
+  } else if (canAssign && match(parser, hl_TOKEN_SLASH_EQUAL)) {
     COMPOUND_ASSIGNMENT(hl_OP_DIVIDE);
-  } else if (canAssign && match(hl_TOKEN_STAR_STAR_EQUAL)) {
+  } else if (canAssign && match(parser, hl_TOKEN_STAR_STAR_EQUAL)) {
     COMPOUND_ASSIGNMENT(hl_OP_POW);
-  } else if (canAssign && match(hl_TOKEN_PERCENT_EQUAL)) {
+  } else if (canAssign && match(parser, hl_TOKEN_PERCENT_EQUAL)) {
     COMPOUND_ASSIGNMENT(hl_OP_MODULO);
-  } else if (canAssign && match(hl_TOKEN_DOT_DOT_EQUAL)) {
+  } else if (canAssign && match(parser, hl_TOKEN_DOT_DOT_EQUAL)) {
     COMPOUND_ASSIGNMENT(hl_OP_CONCAT);
   } else {
-    emitBytes(hl_OP_GET_PROPERTY, name);
+    emitBytes(parser, hl_OP_GET_PROPERTY, name);
   }
 #undef COMPOUND_ASSIGNMENT
 }
 
-static void subscript(bool canAssign) {
-  expression();
-  consume(hl_TOKEN_RBRACKET, "Unterminated subscript operator.");
+static void subscript(struct hl_Parser* parser, bool canAssign) {
+  expression(parser);
+  consume(parser, hl_TOKEN_RBRACKET, "Unterminated subscript operator.");
 
-  if (canAssign && match(hl_TOKEN_EQUAL)) {
-    expression();
-    emitByte(hl_OP_SET_SUBSCRIPT);
+  if (canAssign && match(parser, hl_TOKEN_EQUAL)) {
+    expression(parser);
+    emitByte(parser, hl_OP_SET_SUBSCRIPT);
   } else {
-    emitByte(hl_OP_GET_SUBSCRIPT);
+    emitByte(parser, hl_OP_GET_SUBSCRIPT);
   }
 }
 
-static void staticDot(hl_UNUSED bool canAssign) {
-  consume(hl_TOKEN_IDENTIFIER, "Expected static method name.");
-  u8 name = identifierConstant(&parser.previous);
-  emitBytes(hl_OP_GET_STATIC, name);
+static void staticDot(struct hl_Parser* parser, hl_UNUSED bool canAssign) {
+  consume(parser, hl_TOKEN_IDENTIFIER, "Expected static method name.");
+  u8 name = identifierConstant(parser, &parser->previous);
+  emitBytes(parser, hl_OP_GET_STATIC, name);
 }
 
-static void function(enum FunctionType type, bool isLambda) {
-  struct Compiler compiler;
-  initCompiler(&compiler, type);
-  beginScope();
+static void function(struct hl_Parser* parser, enum hl_FunctionType type, bool isLambda) {
+  struct hl_Compiler compiler;
+  initCompiler(parser, &compiler, type);
+  beginScope(parser);
 
-  if (match(hl_TOKEN_LPAREN)) {
-    if (!check(hl_TOKEN_RPAREN)) {
+  if (match(parser, hl_TOKEN_LPAREN)) {
+    if (!check(parser, hl_TOKEN_RPAREN)) {
       do {
-        currentCompiler->function->arity++;
-        if (currentCompiler->function->arity == 255) {
-          errorAtCurrent("Too many parameters. Max is 255.");
+        parser->compiler->function->arity++;
+        if (parser->compiler->function->arity == 255) {
+          errorAtCurrent(parser, "Too many parameters. Max is 255.");
         }
-        u8 constant = parseVariable("Expected variable name.");
-        defineVariable(constant);
-      } while (match(hl_TOKEN_COMMA));
+        u8 constant = parseVariable(parser, "Expected variable name.");
+        defineVariable(parser, constant);
+      } while (match(parser, hl_TOKEN_COMMA));
     }
-    consume(hl_TOKEN_RPAREN, "Expected ')'.");
+    consume(parser, hl_TOKEN_RPAREN, "Expected ')'.");
   }
   
-  if (match(hl_TOKEN_LBRACE)) {
-    block();
-  } else if (match(hl_TOKEN_RIGHT_ARROW)) {
-    expression();
-    emitByte(hl_OP_RETURN);
+  if (match(parser, hl_TOKEN_LBRACE)) {
+    block(parser);
+  } else if (match(parser, hl_TOKEN_RIGHT_ARROW)) {
+    expression(parser);
+    emitByte(parser, hl_OP_RETURN);
     if (!isLambda) {
-      consume(hl_TOKEN_SEMICOLON, "Expected ';' after expression.");
+      consume(parser, hl_TOKEN_SEMICOLON, "Expected ';' after expression.");
     }
   } else {
-    error("Expected '{' or '=>'.");
+    error(parser, "Expected '{' or '=>'.");
   }
 
-  struct hl_Function* function = endCompiler();
-  emitBytes(hl_OP_CLOSURE, makeConstant(hl_NEW_OBJ(function)));
+  struct hl_Function* function = endCompiler(parser);
+  emitBytes(parser, hl_OP_CLOSURE, makeConstant(parser, hl_NEW_OBJ(function)));
 
   for (s32 i = 0; i < function->upvalueCount; i++) {
-    emitByte(compiler.upvalues[i].isLocal ? 1 : 0);
-    emitByte(compiler.upvalues[i].index);
+    emitByte(parser, compiler.upvalues[i].isLocal ? 1 : 0);
+    emitByte(parser, compiler.upvalues[i].index);
   }
 }
 
-static void lambda(hl_UNUSED bool canAssign) {
-  function(FUNCTION_TYPE_FUNCTION, true);
+static void lambda(struct hl_Parser* parser, hl_UNUSED bool canAssign) {
+  function(parser, FUNCTION_TYPE_FUNCTION, true);
 }
 
-static void literal(hl_UNUSED bool canAssign) {
-  switch (parser.previous.type) {
-    case hl_TOKEN_FALSE: emitByte(hl_OP_FALSE); break;
-    case hl_TOKEN_TRUE: emitByte(hl_OP_TRUE); break;
-    case hl_TOKEN_NIL: emitByte(hl_OP_NIL); break;
+static void literal(struct hl_Parser* parser, hl_UNUSED bool canAssign) {
+  switch (parser->previous.type) {
+    case hl_TOKEN_FALSE: emitByte(parser, hl_OP_FALSE); break;
+    case hl_TOKEN_TRUE: emitByte(parser, hl_OP_TRUE); break;
+    case hl_TOKEN_NIL: emitByte(parser, hl_OP_NIL); break;
     default: return;
   }
 }
 
-static void array(hl_UNUSED bool canAssign) {
+static void array(struct hl_Parser* parser, hl_UNUSED bool canAssign) {
   u8 count = 0;
-  if (!check(hl_TOKEN_RBRACKET)) {
+  if (!check(parser, hl_TOKEN_RBRACKET)) {
     do {
-      expression();
+      expression(parser);
       if (count == 255) {
-        error("Can't have more than 255 elements in an array literal.");
+        error(parser, "Can't have more than 255 elements in an array literal.");
       }
       count++;
 
-      if (!match(hl_TOKEN_COMMA) && !check(hl_TOKEN_RBRACKET)) {
-        error("Expected ','.");
+      if (!match(parser, hl_TOKEN_COMMA) && !check(parser, hl_TOKEN_RBRACKET)) {
+        error(parser, "Expected ','.");
       }
-    } while (!check(hl_TOKEN_RBRACKET));
+    } while (!check(parser, hl_TOKEN_RBRACKET));
   }
-  consume(hl_TOKEN_RBRACKET, "Unterminated array literal.");
+  consume(parser, hl_TOKEN_RBRACKET, "Unterminated array literal.");
 
-  emitBytes(hl_OP_ARRAY, count);
+  emitBytes(parser, hl_OP_ARRAY, count);
 }
 
-static void and_(hl_UNUSED bool canAssign) {
-  s32 endJump = emitJump(hl_OP_JUMP_IF_FALSE);
-  emitByte(hl_OP_POP);
-  parsePrecedence(PREC_AND);
-  patchJump(endJump);
+static void and_(struct hl_Parser* parser, hl_UNUSED bool canAssign) {
+  s32 endJump = emitJump(parser, hl_OP_JUMP_IF_FALSE);
+  emitByte(parser, hl_OP_POP);
+  parsePrecedence(parser, PREC_AND);
+  patchJump(parser, endJump);
 }
 
-static void or_(hl_UNUSED bool canAssign) {
-  s32 elseJump = emitJump(hl_OP_JUMP_IF_FALSE);
-  s32 endJump = emitJump(hl_OP_JUMP);
+static void or_(struct hl_Parser* parser, hl_UNUSED bool canAssign) {
+  s32 elseJump = emitJump(parser, hl_OP_JUMP_IF_FALSE);
+  s32 endJump = emitJump(parser, hl_OP_JUMP);
 
-  patchJump(elseJump);
-  emitByte(hl_OP_POP);
+  patchJump(parser, elseJump);
+  emitByte(parser, hl_OP_POP);
 
-  parsePrecedence(PREC_OR);
-  patchJump(endJump);
+  parsePrecedence(parser, PREC_OR);
+  patchJump(parser, endJump);
 }
 
-static struct ParseRule rules[] = {
+static struct hl_ParseRule rules[] = {
   [hl_TOKEN_LPAREN]        = {grouping, call,       PREC_CALL},
   [hl_TOKEN_RPAREN]        = {NULL,     NULL,       PREC_NONE},
   [hl_TOKEN_LBRACE]        = {NULL,     NULL,       PREC_NONE},
@@ -872,85 +821,85 @@ static struct ParseRule rules[] = {
   [hl_TOKEN_EOF]           = {NULL,     NULL,       PREC_NONE},
 };
 
-static void parsePrecedence(enum Precedence precedence) {
-  advance();
+static void parsePrecedence(struct hl_Parser* parser, enum hl_Precedence precedence) {
+  advance(parser);
 
-  ParseFn prefixRule = getRule(parser.previous.type)->prefix;
+  ParseFn prefixRule = getRule(parser->previous.type)->prefix;
   if (prefixRule == NULL) {
-    error("Expected expression.");
+    error(parser, "Expected expression.");
     return;
   }
 
   bool canAssign = precedence <= PREC_ASSIGNMENT;
-  prefixRule(canAssign);
+  prefixRule(parser, canAssign);
   
-  while (precedence <= getRule(parser.current.type)->precedence) {
-    advance();
-    ParseFn infixRule = getRule(parser.previous.type)->infix;
-    infixRule(canAssign);
+  while (precedence <= getRule(parser->current.type)->precedence) {
+    advance(parser);
+    ParseFn infixRule = getRule(parser->previous.type)->infix;
+    infixRule(parser, canAssign);
   }
 
-  if (canAssign && match(hl_TOKEN_EQUAL)) {
-    error("Cannot assign to that expression.");
+  if (canAssign && match(parser, hl_TOKEN_EQUAL)) {
+    error(parser, "Cannot assign to that expression.");
   }
 }
 
-static struct ParseRule* getRule(enum hl_TokenType type) {
+static struct hl_ParseRule* getRule(enum hl_TokenType type) {
   return &rules[type];
 }
 
-static void expression() {
-  parsePrecedence(PREC_ASSIGNMENT);
+static void expression(struct hl_Parser* parser) {
+  parsePrecedence(parser, PREC_ASSIGNMENT);
 }
 
-static void block() {
-  while (!check(hl_TOKEN_RBRACE) && !check(hl_TOKEN_EOF)) {
-    declaration();
+static void block(struct hl_Parser* parser) {
+  while (!check(parser, hl_TOKEN_RBRACE) && !check(parser, hl_TOKEN_EOF)) {
+    declaration(parser);
   }
 
-  consume(hl_TOKEN_RBRACE, "Unterminated block.");
+  consume(parser, hl_TOKEN_RBRACE, "Unterminated block.");
 }
 
-static void method(bool isStatic) {
-  consume(hl_TOKEN_IDENTIFIER, "Expected method name.");
-  u8 constant = identifierConstant(&parser.previous);
+static void method(struct hl_Parser* parser, bool isStatic) {
+  consume(parser, hl_TOKEN_IDENTIFIER, "Expected method name.");
+  u8 constant = identifierConstant(parser, &parser->previous);
 
-  enum FunctionType type = isStatic 
+  enum hl_FunctionType type = isStatic 
       ? FUNCTION_TYPE_FUNCTION
       : FUNCTION_TYPE_METHOD;
-  function(type, false);
-  emitBytes(isStatic ? hl_OP_STATIC_METHOD : hl_OP_METHOD, constant);
+  function(parser, type, false);
+  emitBytes(parser, isStatic ? hl_OP_STATIC_METHOD : hl_OP_METHOD, constant);
 }
 
-static void functionDeclaration() {
-  u8 global = parseVariable("Expected function name.");
-  markInitialized();
-  function(FUNCTION_TYPE_FUNCTION, false);
-  defineVariable(global);
+static void functionDeclaration(struct hl_Parser* parser) {
+  u8 global = parseVariable(parser, "Expected function name.");
+  markInitialized(parser);
+  function(parser, FUNCTION_TYPE_FUNCTION, false);
+  defineVariable(parser, global);
 }
 
-static void arrayDestructAssignment() {
+static void arrayDestructAssignment(struct hl_Parser* parser) {
   u8 setters[UINT8_MAX];
   u8 variables[UINT8_MAX];
   u8 variableCount = 0;
   do {
     if (variableCount == 255) {
-      error("Cannot have more than 255 variables per assignment.");
+      error(parser, "Cannot have more than 255 variables per assignment.");
       return;
     }
 
-    consume(hl_TOKEN_IDENTIFIER, "Expected identifier.");
-    struct hl_Token name = parser.previous;
+    consume(parser, hl_TOKEN_IDENTIFIER, "Expected identifier.");
+    struct hl_Token name = parser->previous;
 
     u8 setter;
-    s32 arg = resolveLocal(currentCompiler, &name);
+    s32 arg = resolveLocal(parser, parser->compiler, &name);
 
     if (arg != -1) {
       setter = hl_OP_SET_LOCAL;
-    } else if ((arg = resolveUpvalue(currentCompiler, &name)) != -1) {
+    } else if ((arg = resolveUpvalue(parser, parser->compiler, &name)) != -1) {
       setter = hl_OP_SET_UPVALUE;
     } else {
-      arg = identifierConstant(&name);
+      arg = identifierConstant(parser, &name);
       setter = hl_OP_SET_GLOBAL;
     }
 
@@ -958,305 +907,305 @@ static void arrayDestructAssignment() {
     setters[variableCount] = setter;
 
     variableCount++;
-  } while (match(hl_TOKEN_COMMA));
+  } while (match(parser, hl_TOKEN_COMMA));
 
-  consume(hl_TOKEN_RBRACKET, "Expected ']'.");
-  consume(hl_TOKEN_EQUAL, "Expected '='.");
-  expression();
+  consume(parser, hl_TOKEN_RBRACKET, "Expected ']'.");
+  consume(parser, hl_TOKEN_EQUAL, "Expected '='.");
+  expression(parser);
 
   for (u8 i = 0; i < variableCount; i++) {
-    emitBytes(hl_OP_DESTRUCT_ARRAY, i);
-    emitBytes(setters[i], variables[i]);
-    emitByte(hl_OP_POP);
+    emitBytes(parser, hl_OP_DESTRUCT_ARRAY, i);
+    emitBytes(parser, setters[i], variables[i]);
+    emitByte(parser, hl_OP_POP);
   }
 
-  emitByte(hl_OP_POP);
-  consume(hl_TOKEN_SEMICOLON, "Expected ';' after variable declaration.");
+  emitByte(parser, hl_OP_POP);
+  consume(parser, hl_TOKEN_SEMICOLON, "Expected ';' after variable declaration.");
 }
 
-static void varDeclaration() {
-  if (match(hl_TOKEN_LBRACKET)) {
+static void varDeclaration(struct hl_Parser* parser) {
+  if (match(parser, hl_TOKEN_LBRACKET)) {
     u8 variables[UINT8_MAX];
     u8 variableCount = 0;
     do {
       if (variableCount == 255) {
-        error("Cannot have more than 255 variables per var.");
+        error(parser, "Cannot have more than 255 variables per var.");
         return;
       }
 
-      consume(hl_TOKEN_IDENTIFIER, "Expected identifier.");
-      u8 nameConstant = identifierConstant(&parser.previous);
+      consume(parser, hl_TOKEN_IDENTIFIER, "Expected identifier.");
+      u8 nameConstant = identifierConstant(parser, &parser->previous);
       variables[variableCount++] = nameConstant;
-      declareVariable();
-    } while (match(hl_TOKEN_COMMA));
+      declareVariable(parser);
+    } while (match(parser, hl_TOKEN_COMMA));
 
-    consume(hl_TOKEN_RBRACKET, "Expected ']'.");
-    consume(hl_TOKEN_EQUAL, "Expected '='.");
-    expression();
+    consume(parser, hl_TOKEN_RBRACKET, "Expected ']'.");
+    consume(parser, hl_TOKEN_EQUAL, "Expected '='.");
+    expression(parser);
 
     for (u8 i = 0; i < variableCount; i++) {
-      emitBytes(hl_OP_DESTRUCT_ARRAY, i);
-      defineVariable(variables[i]);
+      emitBytes(parser, hl_OP_DESTRUCT_ARRAY, i);
+      defineVariable(parser, variables[i]);
     }
 
-    emitByte(hl_OP_POP);
+    emitByte(parser, hl_OP_POP);
   } else {
-    u8 global = parseVariable("Expected identifier.");
+    u8 global = parseVariable(parser, "Expected identifier.");
 
-    if (match(hl_TOKEN_EQUAL)) {
-      expression();
+    if (match(parser, hl_TOKEN_EQUAL)) {
+      expression(parser);
     } else {
-      emitByte(hl_OP_NIL);
+      emitByte(parser, hl_OP_NIL);
     }
 
-    defineVariable(global);
+    defineVariable(parser, global);
   }
 
-  consume(hl_TOKEN_SEMICOLON, "Expected ';' after variable declaration.");
+  consume(parser, hl_TOKEN_SEMICOLON, "Expected ';' after variable declaration.");
 }
 
-static void structDeclaration() {
-  if (currentCompiler->scopeDepth != 0) {
-    error("Structs must be defined in top-level code.");
+static void structDeclaration(struct hl_Parser* parser) {
+  if (parser->compiler->scopeDepth != 0) {
+    error(parser, "Structs must be defined in top-level code.");
   }
 
-  struct StructCompiler structCompiler;
-  structCompiler.enclosing = currentStruct;
-  currentStruct = &structCompiler;
+  struct hl_StructCompiler structCompiler;
+  structCompiler.enclosing = parser->structCompiler;
+  parser->structCompiler = &structCompiler;
 
-  consume(hl_TOKEN_IDENTIFIER, "Expected struct identifier.");
-  struct hl_Token structName = parser.previous;
-  u8 nameConstant = identifierConstant(&parser.previous);
-  declareVariable();
+  consume(parser, hl_TOKEN_IDENTIFIER, "Expected struct identifier.");
+  struct hl_Token structName = parser->previous;
+  u8 nameConstant = identifierConstant(parser, &parser->previous);
+  declareVariable(parser);
 
-  emitBytes(hl_OP_STRUCT, nameConstant);
-  defineVariable(nameConstant);
+  emitBytes(parser, hl_OP_STRUCT, nameConstant);
+  defineVariable(parser, nameConstant);
 
-  namedVariable(structName, false);
+  namedVariable(parser, structName, false);
 
-  consume(hl_TOKEN_LBRACE, "Expected struct body.");
+  consume(parser, hl_TOKEN_LBRACE, "Expected struct body.");
 
-  while (!check(hl_TOKEN_RBRACE) && !check(hl_TOKEN_EOF)) {
-    if (match(hl_TOKEN_VAR)) {
+  while (!check(parser, hl_TOKEN_RBRACE) && !check(parser, hl_TOKEN_EOF)) {
+    if (match(parser, hl_TOKEN_VAR)) {
       // Default value can't be done at compile time, so we'll need an
       // instruction to do that
-      consume(hl_TOKEN_IDENTIFIER, "Expected field identifier.");
-      struct hl_Token name = parser.previous;
+      consume(parser, hl_TOKEN_IDENTIFIER, "Expected field identifier.");
+      struct hl_Token name = parser->previous;
 
-      if (match(hl_TOKEN_EQUAL)) {
-        expression();
+      if (match(parser, hl_TOKEN_EQUAL)) {
+        expression(parser);
       } else {
-        emitByte(hl_OP_NIL);
+        emitByte(parser, hl_OP_NIL);
       }
 
-      emitBytes(hl_OP_STRUCT_FIELD, identifierConstant(&name));
+      emitBytes(parser, hl_OP_STRUCT_FIELD, identifierConstant(parser, &name));
 
-      consume(hl_TOKEN_SEMICOLON, "Expected ';' after field.");
-    } else if (match(hl_TOKEN_FUNC)) {
-      method(false);
-    } else if (match(hl_TOKEN_STATIC)) {
-      consume(hl_TOKEN_FUNC, "Expected 'func' after 'static'.");
-      method(true);
+      consume(parser, hl_TOKEN_SEMICOLON, "Expected ';' after field.");
+    } else if (match(parser, hl_TOKEN_FUNC)) {
+      method(parser, false);
+    } else if (match(parser, hl_TOKEN_STATIC)) {
+      consume(parser, hl_TOKEN_FUNC, "Expected 'func' after 'static'.");
+      method(parser, true);
     }
   }
 
-  consume(hl_TOKEN_RBRACE, "Unterminated struct declaration.");
+  consume(parser, hl_TOKEN_RBRACE, "Unterminated struct declaration.");
 
-  emitByte(hl_OP_POP); // Struct
+  emitByte(parser, hl_OP_POP); // Struct
 
-  currentStruct = currentStruct->enclosing;
+  parser->structCompiler = parser->structCompiler->enclosing;
 }
 
-void enumDeclaration() {
-  if (currentCompiler->scopeDepth != 0) {
-    error("Enums must be defined in top-level code.");
+void enumDeclaration(struct hl_Parser* parser) {
+  if (parser->compiler->scopeDepth != 0) {
+    error(parser, "Enums must be defined in top-level code.");
   }
 
-  consume(hl_TOKEN_IDENTIFIER, "Expected enum identifier.");
-  struct hl_Token enumName = parser.previous;
-  u8 nameConstant = identifierConstant(&parser.previous);
-  declareVariable();
+  consume(parser, hl_TOKEN_IDENTIFIER, "Expected enum identifier.");
+  struct hl_Token enumName = parser->previous;
+  u8 nameConstant = identifierConstant(parser, &parser->previous);
+  declareVariable(parser);
 
-  emitBytes(hl_OP_ENUM, nameConstant);
-  defineVariable(nameConstant);
+  emitBytes(parser, hl_OP_ENUM, nameConstant);
+  defineVariable(parser, nameConstant);
 
-  namedVariable(enumName, false);
+  namedVariable(parser, enumName, false);
 
-  consume(hl_TOKEN_LBRACE, "Expected '{'.");
+  consume(parser, hl_TOKEN_LBRACE, "Expected '{'.");
 
   u8 enumValue = 0;
-  if (!check(hl_TOKEN_RBRACE)) {
+  if (!check(parser, hl_TOKEN_RBRACE)) {
     do {
       if (enumValue == 255) {
-        error("Cannot have more than 255 enum values.");
+        error(parser, "Cannot have more than 255 enum values.");
       }
 
-      consume(hl_TOKEN_IDENTIFIER, "Expected enum value.");
-      emitByte(hl_OP_ENUM_VALUE);
-      emitByte(identifierConstant(&parser.previous));
-      emitByte(enumValue++);
+      consume(parser, hl_TOKEN_IDENTIFIER, "Expected enum value.");
+      emitByte(parser, hl_OP_ENUM_VALUE);
+      emitByte(parser, identifierConstant(parser, &parser->previous));
+      emitByte(parser, enumValue++);
 
-      if (!match(hl_TOKEN_COMMA) && !check(hl_TOKEN_RBRACE)) {
-        error("Expected ','.");
+      if (!match(parser, hl_TOKEN_COMMA) && !check(parser, hl_TOKEN_RBRACE)) {
+        error(parser, "Expected ','.");
       }
-    } while (!check(hl_TOKEN_RBRACE) && !check(hl_TOKEN_EOF));
+    } while (!check(parser, hl_TOKEN_RBRACE) && !check(parser, hl_TOKEN_EOF));
   }
 
-  consume(hl_TOKEN_RBRACE, "Unterminated enum declaration.");
+  consume(parser, hl_TOKEN_RBRACE, "Unterminated enum declaration.");
 
-  emitByte(hl_OP_POP); // Enum
+  emitByte(parser, hl_OP_POP); // Enum
 }
 
-static void expressionStatement() {
-  expression();
-  emitByte(hl_OP_POP);
-  consume(hl_TOKEN_SEMICOLON, "Expected ';' after expression.");
+static void expressionStatement(struct hl_Parser* parser) {
+  expression(parser);
+  emitByte(parser, hl_OP_POP);
+  consume(parser, hl_TOKEN_SEMICOLON, "Expected ';' after expression.");
 }
 
-static void ifStatement() {
-  consume(hl_TOKEN_LPAREN, "Expected '('.");
-  expression();
-  consume(hl_TOKEN_RPAREN, "Expected ')'.");
+static void ifStatement(struct hl_Parser* parser) {
+  consume(parser, hl_TOKEN_LPAREN, "Expected '('.");
+  expression(parser);
+  consume(parser, hl_TOKEN_RPAREN, "Expected ')'.");
   
-  s32 thenJump = emitJump(hl_OP_JUMP_IF_FALSE);
-  emitByte(hl_OP_POP);
+  s32 thenJump = emitJump(parser, hl_OP_JUMP_IF_FALSE);
+  emitByte(parser, hl_OP_POP);
 
-  statement();
+  statement(parser);
 
-  s32 elseJump = emitJump(hl_OP_JUMP);
-  patchJump(thenJump);
-  emitByte(hl_OP_POP);
+  s32 elseJump = emitJump(parser, hl_OP_JUMP);
+  patchJump(parser, thenJump);
+  emitByte(parser, hl_OP_POP);
 
-  if (match(hl_TOKEN_ELSE)) {
-    statement();
+  if (match(parser, hl_TOKEN_ELSE)) {
+    statement(parser);
   }
 
-  patchJump(elseJump);
+  patchJump(parser, elseJump);
 }
 
-void matchStatement() {
-  consume(hl_TOKEN_LPAREN, "Expected '('.");
-  expression();
-  consume(hl_TOKEN_RPAREN, "Expected ')'.");
+void matchStatement(struct hl_Parser* parser) {
+  consume(parser, hl_TOKEN_LPAREN, "Expected '('.");
+  expression(parser);
+  consume(parser, hl_TOKEN_RPAREN, "Expected ')'.");
 
   s32 caseEnds[256];
   s32 caseCount = 0;
 
-  consume(hl_TOKEN_LBRACE, "Expected '{'");
+  consume(parser, hl_TOKEN_LBRACE, "Expected '{'");
 
-  if (match(hl_TOKEN_CASE)) {
+  if (match(parser, hl_TOKEN_CASE)) {
     do {
-      expression();
+      expression(parser);
 
-      s32 inequalityJump = emitJump(hl_OP_INEQUALITY_JUMP);
+      s32 inequalityJump = emitJump(parser, hl_OP_INEQUALITY_JUMP);
 
-      consume(hl_TOKEN_RIGHT_ARROW, "Expected '=>' after case expression.");
-      statement();
+      consume(parser, hl_TOKEN_RIGHT_ARROW, "Expected '=>' after case expression.");
+      statement(parser);
 
-      caseEnds[caseCount++] = emitJump(hl_OP_JUMP);
+      caseEnds[caseCount++] = emitJump(parser, hl_OP_JUMP);
       if (caseCount == 256) {
-        error("Cannot have more than 256 cases in a single match statement.");
+        error(parser, "Cannot have more than 256 cases in a single match statement.");
       }
 
-      patchJump(inequalityJump);
-    } while (match(hl_TOKEN_CASE));
+      patchJump(parser, inequalityJump);
+    } while (match(parser, hl_TOKEN_CASE));
   }
 
-  if (match(hl_TOKEN_ELSE)) {
-    consume(hl_TOKEN_RIGHT_ARROW, "Expected '=>' after 'else'.");
-    statement();
+  if (match(parser, hl_TOKEN_ELSE)) {
+    consume(parser, hl_TOKEN_RIGHT_ARROW, "Expected '=>' after 'else'.");
+    statement(parser);
   }
 
-  if (match(hl_TOKEN_CASE)) {
-    error("Default case must be the last case.");
+  if (match(parser, hl_TOKEN_CASE)) {
+    error(parser, "Default case must be the last case.");
   }
 
   for (s32 i = 0; i < caseCount; i++) {
-    patchJump(caseEnds[i]);
+    patchJump(parser, caseEnds[i]);
   }
 
-  emitByte(hl_OP_POP); // Expression
+  emitByte(parser, hl_OP_POP); // Expression
 
-  consume(hl_TOKEN_RBRACE, "Expected '}'");
+  consume(parser, hl_TOKEN_RBRACE, "Expected '}'");
 }
 
-static void continueStatement() {
-  if (currentCompiler->loop == NULL) {
-    error("Cannot use 'continue' outside of a loop.");
+static void continueStatement(struct hl_Parser* parser) {
+  if (parser->compiler->loop == NULL) {
+    error(parser, "Cannot use 'continue' outside of a loop.");
   }
 
-  discardLocals();
-  emitLoop(currentCompiler->loop->start);
-  consume(hl_TOKEN_SEMICOLON, "Expected semicolon after 'break'.");
+  discardLocals(parser);
+  emitLoop(parser, parser->compiler->loop->start);
+  consume(parser, hl_TOKEN_SEMICOLON, "Expected semicolon after 'break'.");
 }
 
-static void breakStatement() {
-  if (currentCompiler->loop == NULL) {
-    error("Cannot use 'break' outside of a loop.");
+static void breakStatement(struct hl_Parser* parser) {
+  if (parser->compiler->loop == NULL) {
+    error(parser, "Cannot use 'break' outside of a loop.");
   }
 
-  discardLocals();
-  emitJump(hl_OP_BREAK);
-  consume(hl_TOKEN_SEMICOLON, "Expected semicolon after 'break'.");
+  discardLocals(parser);
+  emitJump(parser, hl_OP_BREAK);
+  consume(parser, hl_TOKEN_SEMICOLON, "Expected semicolon after 'break'.");
 }
 
-static void whileStatement() {
-  struct Loop loop;
-  beginLoop(&loop);
+static void whileStatement(struct hl_Parser* parser) {
+  struct hl_Loop loop;
+  beginLoop(parser, &loop);
 
-  consume(hl_TOKEN_LPAREN, "Expected '(' before while condition.");
-  expression();
-  consume(hl_TOKEN_RPAREN, "Expected ')' after while condition.");
+  consume(parser, hl_TOKEN_LPAREN, "Expected '(' before while condition.");
+  expression(parser);
+  consume(parser, hl_TOKEN_RPAREN, "Expected ')' after while condition.");
 
-  s32 exitJump = emitJump(hl_OP_JUMP_IF_FALSE);
-  emitByte(hl_OP_POP);
+  s32 exitJump = emitJump(parser, hl_OP_JUMP_IF_FALSE);
+  emitByte(parser, hl_OP_POP);
 
-  loop.bodyStart = currentChunk()->count;
-  statement();
+  loop.bodyStart = currentChunk(parser)->count;
+  statement(parser);
 
-  emitLoop(loop.start);
+  emitLoop(parser, loop.start);
 
-  patchJump(exitJump);
-  emitByte(hl_OP_POP);
+  patchJump(parser, exitJump);
+  emitByte(parser, hl_OP_POP);
 
-  endLoop(&loop);
+  endLoop(parser, &loop);
 }
 
-static void loopStatement() {
-  struct Loop loop;
-  beginLoop(&loop);
+static void loopStatement(struct hl_Parser* parser) {
+  struct hl_Loop loop;
+  beginLoop(parser, &loop);
 
-  loop.start = currentChunk()->count;
-  statement();
-  emitLoop(loop.start);
+  loop.start = currentChunk(parser)->count;
+  statement(parser);
+  emitLoop(parser, loop.start);
 
-  endLoop(&loop);
+  endLoop(parser, &loop);
 }
 
-static void returnStatement() {
-  if (currentCompiler->type == FUNCTION_TYPE_SCRIPT) {
-    error("Can only return in functions.");
+static void returnStatement(struct hl_Parser* parser) {
+  if (parser->compiler->type == FUNCTION_TYPE_SCRIPT) {
+    error(parser, "Can only return in functions.");
   }
 
-  if (match(hl_TOKEN_SEMICOLON)) {
-    emitReturn();
+  if (match(parser, hl_TOKEN_SEMICOLON)) {
+    emitReturn(parser);
     return;
   }
 
-  expression();
-  consume(hl_TOKEN_SEMICOLON, "Expected ';' after return value.");
-  emitByte(hl_OP_RETURN);
+  expression(parser);
+  consume(parser, hl_TOKEN_SEMICOLON, "Expected ';' after return value.");
+  emitByte(parser, hl_OP_RETURN);
 }
 
-static void synchronize() {
-  parser.panicMode = false;
+static void synchronize(struct hl_Parser* parser) {
+  parser->panicMode = false;
 
-  while (parser.current.type != hl_TOKEN_EOF) {
-    if (parser.previous.type == hl_TOKEN_SEMICOLON) {
+  while (parser->current.type != hl_TOKEN_EOF) {
+    if (parser->previous.type == hl_TOKEN_SEMICOLON) {
       return;
     }
 
-    switch (parser.current.type) {
+    switch (parser->current.type) {
       case hl_TOKEN_STRUCT:
       case hl_TOKEN_STATIC:
       case hl_TOKEN_FUNC:
@@ -1273,74 +1222,74 @@ static void synchronize() {
         break;
     }
 
-    advance();
+    advance(parser);
   }
 }
 
-static void declaration() {
-  if (match(hl_TOKEN_VAR)) {
-    varDeclaration();
-  } else if (match(hl_TOKEN_LBRACKET)) {
-    arrayDestructAssignment();
-  } else if (match(hl_TOKEN_FUNC)) {
-    functionDeclaration();
-  } else if (match(hl_TOKEN_STRUCT)) {
-    structDeclaration();
-  } else if (match(hl_TOKEN_ENUM)) {
-    enumDeclaration();
+static void declaration(struct hl_Parser* parser) {
+  if (match(parser, hl_TOKEN_VAR)) {
+    varDeclaration(parser);
+  } else if (match(parser, hl_TOKEN_LBRACKET)) {
+    arrayDestructAssignment(parser);
+  } else if (match(parser, hl_TOKEN_FUNC)) {
+    functionDeclaration(parser);
+  } else if (match(parser, hl_TOKEN_STRUCT)) {
+    structDeclaration(parser);
+  } else if (match(parser, hl_TOKEN_ENUM)) {
+    enumDeclaration(parser);
   } else {
-    statement();
+    statement(parser);
   }
 
-  if (parser.panicMode) {
-    synchronize();
+  if (parser->panicMode) {
+    synchronize(parser);
   }
 }
 
-static void statement() {
-  if (match(hl_TOKEN_IF)) {
-    ifStatement();
-  } else if (match(hl_TOKEN_MATCH)) {
-    matchStatement();
-  } else if (match(hl_TOKEN_WHILE)) {
-    whileStatement();
-  } else if (match(hl_TOKEN_LOOP)) {
-    loopStatement();
-  } else if (match(hl_TOKEN_LBRACE)) {
-    beginScope();
-    block();
-    endScope();
-  } else if (match(hl_TOKEN_BREAK)) {
-    breakStatement();
-  } else if (match(hl_TOKEN_CONTINUE)) {
-    continueStatement();
-  } else if (match(hl_TOKEN_RETURN)) {
-    returnStatement();
+static void statement(struct hl_Parser* parser) {
+  if (match(parser, hl_TOKEN_IF)) {
+    ifStatement(parser);
+  } else if (match(parser, hl_TOKEN_MATCH)) {
+    matchStatement(parser);
+  } else if (match(parser, hl_TOKEN_WHILE)) {
+    whileStatement(parser);
+  } else if (match(parser, hl_TOKEN_LOOP)) {
+    loopStatement(parser);
+  } else if (match(parser, hl_TOKEN_LBRACE)) {
+    beginScope(parser);
+    block(parser);
+    endScope(parser);
+  } else if (match(parser, hl_TOKEN_BREAK)) {
+    breakStatement(parser);
+  } else if (match(parser, hl_TOKEN_CONTINUE)) {
+    continueStatement(parser);
+  } else if (match(parser, hl_TOKEN_RETURN)) {
+    returnStatement(parser);
   } else {
-    expressionStatement();
+    expressionStatement(parser);
   }
 }
 
-struct hl_Function* hl_compile(const char* source) {
+struct hl_Function* hl_compile(struct hl_Parser* parser, const char* source) {
   hl_initTokenizer(source);
 
-  struct Compiler compiler;
-  initCompiler(&compiler, FUNCTION_TYPE_SCRIPT);
+  parser->hadError = false;
+  parser->panicMode = false;
 
-  parser.hadError = false;
-  parser.panicMode = false;
+  struct hl_Compiler compiler;
+  initCompiler(parser, &compiler, FUNCTION_TYPE_SCRIPT);
 
-  advance();
-  while (!match(hl_TOKEN_EOF)) {
-    declaration();
+  advance(parser);
+  while (!match(parser, hl_TOKEN_EOF)) {
+    declaration(parser);
   }
 
-  struct hl_Function* function = endCompiler();
-  return parser.hadError ? NULL : function;
+  struct hl_Function* function = endCompiler(parser);
+  return parser->hadError ? NULL : function;
 }
 
-void hl_markCompilerRoots() {
-  struct Compiler* compiler = currentCompiler;
+void hl_markCompilerRoots(struct hl_Parser* parser) {
+  struct hl_Compiler* compiler = parser->compiler;
   while (compiler != NULL) {
     hl_markObject((struct hl_Obj*)compiler->function);
     compiler = compiler->enclosing;
