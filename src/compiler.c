@@ -17,7 +17,7 @@
 #include "debug.h"
 #endif
 
-enum hl_Precedence {
+enum Precedence {
   PREC_NONE,
   PREC_ASSIGNMENT,
   PREC_OR,
@@ -34,10 +34,10 @@ enum hl_Precedence {
 
 typedef void (*ParseFn)(struct hl_Parser* parser, bool canAssign);
 
-struct hl_ParseRule {
+struct ParseRule {
   ParseFn prefix;
   ParseFn infix;
-  enum hl_Precedence precedence;
+  enum Precedence precedence;
 };
 
 static struct hl_Chunk* currentChunk(struct hl_Parser* parser) {
@@ -337,8 +337,8 @@ static void endScope(struct hl_Parser* parser) {
 static void expression(struct hl_Parser* parser);
 static void statement(struct hl_Parser* parser);
 static void declaration(struct hl_Parser* parser);
-static struct hl_ParseRule* getRule(enum hl_TokenType type);
-static void parsePrecedence(struct hl_Parser* parser, enum hl_Precedence precedence);
+static struct ParseRule* getRule(enum hl_TokenType type);
+static void parsePrecedence(struct hl_Parser* parser, enum Precedence precedence);
 static void block(struct hl_Parser* parser);
 
 static void markInitialized(struct hl_Parser* parser) {
@@ -583,8 +583,8 @@ static void unary(struct hl_Parser* parser, hl_UNUSED bool canAssign) {
 
 static void binary(struct hl_Parser* parser, hl_UNUSED bool canAssign) {
   enum hl_TokenType op = parser->previous.type;
-  struct hl_ParseRule* rule = getRule(op);
-  parsePrecedence(parser, (enum hl_Precedence)(rule->precedence + 1));
+  struct ParseRule* rule = getRule(op);
+  parsePrecedence(parser, (enum Precedence)(rule->precedence + 1));
 
   switch (op) {
     case hl_TOKEN_PLUS:          emitByte(parser, hl_OP_ADD); break;
@@ -772,7 +772,7 @@ static void or_(struct hl_Parser* parser, hl_UNUSED bool canAssign) {
   patchJump(parser, endJump);
 }
 
-static struct hl_ParseRule rules[] = {
+static struct ParseRule rules[] = {
   [hl_TOKEN_LPAREN]        = {grouping, call,       PREC_CALL},
   [hl_TOKEN_RPAREN]        = {NULL,     NULL,       PREC_NONE},
   [hl_TOKEN_LBRACE]        = {NULL,     NULL,       PREC_NONE},
@@ -821,7 +821,7 @@ static struct hl_ParseRule rules[] = {
   [hl_TOKEN_EOF]           = {NULL,     NULL,       PREC_NONE},
 };
 
-static void parsePrecedence(struct hl_Parser* parser, enum hl_Precedence precedence) {
+static void parsePrecedence(struct hl_Parser* parser, enum Precedence precedence) {
   advance(parser);
 
   ParseFn prefixRule = getRule(parser->previous.type)->prefix;
@@ -844,7 +844,7 @@ static void parsePrecedence(struct hl_Parser* parser, enum hl_Precedence precede
   }
 }
 
-static struct hl_ParseRule* getRule(enum hl_TokenType type) {
+static struct ParseRule* getRule(enum hl_TokenType type) {
   return &rules[type];
 }
 
