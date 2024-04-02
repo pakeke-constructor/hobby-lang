@@ -1,0 +1,9 @@
+
+-std=c11
+-Wall
+-Wextra
+-Werror
+-Isrc
+-O0
+-g
+-fsanitize=address
