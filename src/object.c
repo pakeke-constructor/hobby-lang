@@ -27,9 +27,10 @@ static struct hl_Obj* allocateObject(size_t size, enum hl_ObjType type) {
   return object;
 }
 
-struct hl_Array* hl_newArray() {
+struct hl_Array* hl_newArray(s32 initialElements) {
   struct hl_Array* array = ALLOCATE_OBJ(struct hl_Array, hl_OBJ_ARRAY);
   hl_initValueArray(&array->values);
+  hl_reserveValueArray(&array->values, initialElements);
   return array;
 }
 
@@ -147,50 +148,46 @@ struct hl_String* hl_takeString(char* chars, s32 length) {
   return allocateString(chars, length, hash);
 }
 
-static hl_Value format(const char* format, ...) {
-  va_list args;
-  va_start(args, format);
-
-  s32 size = vsnprintf(NULL, 0, format, args) + 1;
-  char* buffer = hl_ALLOCATE(char, size);
-  vsnprintf(buffer, size, format, args);
-
-  va_end(args);
-  return hl_NEW_OBJ(hl_takeString(buffer, size));
-}
-
-static hl_Value functionToChars(struct hl_Function* function) {
+static void printFunction(struct hl_Function* function) {
   if (function->name == NULL) {
-    return hl_NEW_OBJ(hl_copyString("<script>", 8));
+    printf("<script>");
+    return;
   }
-  return format("<function %s %p>", function->name->chars, function);
+  printf("<function %s %p>", function->name->chars, function);
 }
 
-hl_Value hl_objectToChars(hl_Value value) {
+void hl_printObject(hl_Value value) {
   switch (hl_OBJ_TYPE(value)) {
     case hl_OBJ_CLOSURE:
-      return functionToChars(hl_AS_CLOSURE(value)->function);
+      printFunction(hl_AS_CLOSURE(value)->function);
+      break;
     case hl_OBJ_UPVALUE:
-      return format("<upvalue %p>", hl_AS_OBJ(value));
+      printf("<upvalue %p>", hl_AS_OBJ(value));
+      break;
     case hl_OBJ_FUNCTION:
-      return functionToChars(hl_AS_FUNCTION(value));
+      printFunction(hl_AS_FUNCTION(value));
+      break;
     case hl_OBJ_BOUND_METHOD:
-      return functionToChars(hl_AS_BOUND_METHOD(value)->method->function);
+      printFunction(hl_AS_BOUND_METHOD(value)->method->function);
+      break;
     case hl_OBJ_CFUNCTION:
-      return format("<cfunction %p>", hl_AS_OBJ(value));
+      printf("<cfunction %p>", hl_AS_OBJ(value));
+      break;
     case hl_OBJ_STRING:
-      return value;
+      printf("%s", hl_AS_CSTRING(value));
+      break;
     case hl_OBJ_STRUCT:
-      return format("<%s>", hl_AS_STRUCT(value)->name);
+      printf("<struct %s>", hl_AS_STRUCT(value)->name->chars);
+      break;
     case hl_OBJ_INSTANCE:
-      return format("<%s instance %p>",
+      printf("<%s instance %p>",
           hl_AS_INSTANCE(value)->strooct->name->chars, hl_AS_OBJ(value));
+      break;
     case hl_OBJ_ENUM:
-      return format("<%s>", hl_AS_ENUM(value)->name);
+      printf("<enum %s>", hl_AS_ENUM(value)->name->chars);
+      break;
     case hl_OBJ_ARRAY:
-      return format("<array %p>", hl_AS_OBJ(value));
+      printf("<array %p>", hl_AS_OBJ(value));
+      break;
   }
-
-  // unreachable
-  return hl_NEW_NIL;
 }

@@ -50,8 +50,8 @@ struct hl_Obj {
 
 struct hl_Function {
   struct hl_Obj obj;
-  s32 arity;
-  s32 upvalueCount;
+  u8 arity;
+  u8 upvalueCount;
   struct hl_Chunk chunk;
   struct hl_String* name;
 };
@@ -60,7 +60,7 @@ struct hl_Closure {
   struct hl_Obj obj;
   struct hl_Function* function;
   struct hl_Upvalue** upvalues;
-  s32 upvalueCount;
+  u8 upvalueCount;
 };
 
 struct hl_Upvalue {
@@ -115,7 +115,7 @@ struct hl_Array {
   struct hl_ValueArray values;
 };
 
-struct hl_Array* hl_newArray();
+struct hl_Array* hl_newArray(s32 initialElements);
 struct hl_Enum* hl_newEnum(struct hl_String* name);
 struct hl_Closure* hl_newClosure(struct hl_Function* function);
 struct hl_Upvalue* hl_newUpvalue(hl_Value* slot);
@@ -127,7 +127,7 @@ struct hl_String* hl_copyString(const char* chars, int length);
 struct hl_String* hl_takeString(char* chars, int length);
 struct hl_Struct* hl_newStruct(struct hl_String* name);
 struct hl_Instance* hl_newInstance(struct hl_Struct* strooct);
-hl_Value hl_objectToChars(hl_Value value);
+void hl_printObject(hl_Value value);
 
 static inline bool isObjOfType(hl_Value value, enum hl_ObjType type) {
   return hl_IS_OBJ(value) && hl_AS_OBJ(value)->type == type;

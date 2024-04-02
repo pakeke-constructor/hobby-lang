@@ -308,6 +308,7 @@ s32 opCodeArgCount(enum hl_OpCode opCode, s32 ip) {
     case hl_OP_GET_PROPERTY:
     case hl_OP_SET_PROPERTY:
     case hl_OP_PUSH_PROPERTY:
+    case hl_OP_DESTRUCT_ARRAY:
     case hl_OP_CALL:
     case hl_OP_STRUCT:
     case hl_OP_INIT_PROPERTY:
@@ -740,7 +741,7 @@ static void function(enum FunctionType type, bool isLambda) {
     if (!check(hl_TOKEN_RPAREN)) {
       do {
         currentCompiler->function->arity++;
-        if (currentCompiler->function->arity > 255) {
+        if (currentCompiler->function->arity == 255) {
           errorAtCurrent("Too many parameters. Max is 255.");
         }
         u8 constant = parseVariable("Expected variable name.");
@@ -928,18 +929,90 @@ static void functionDeclaration() {
   defineVariable(global);
 }
 
-static void varDeclaration() {
-  u8 global = parseVariable("Expected identifier.");
+static void arrayDestructAssignment() {
+  u8 setters[UINT8_MAX];
+  u8 variables[UINT8_MAX];
+  u8 variableCount = 0;
+  do {
+    if (variableCount == 255) {
+      error("Cannot have more than 255 variables per assignment.");
+      return;
+    }
 
-  if (match(hl_TOKEN_EQUAL)) {
+    consume(hl_TOKEN_IDENTIFIER, "Expected identifier.");
+    struct hl_Token name = parser.previous;
+
+    u8 setter;
+    s32 arg = resolveLocal(currentCompiler, &name);
+
+    if (arg != -1) {
+      setter = hl_OP_SET_LOCAL;
+    } else if ((arg = resolveUpvalue(currentCompiler, &name)) != -1) {
+      setter = hl_OP_SET_UPVALUE;
+    } else {
+      arg = identifierConstant(&name);
+      setter = hl_OP_SET_GLOBAL;
+    }
+
+    variables[variableCount] = arg;
+    setters[variableCount] = setter;
+
+    variableCount++;
+  } while (match(hl_TOKEN_COMMA));
+
+  consume(hl_TOKEN_RBRACKET, "Expected ']'.");
+  consume(hl_TOKEN_EQUAL, "Expected '='.");
+  expression();
+
+  for (u8 i = 0; i < variableCount; i++) {
+    emitBytes(hl_OP_DESTRUCT_ARRAY, i);
+    emitBytes(setters[i], variables[i]);
+    emitByte(hl_OP_POP);
+  }
+
+  emitByte(hl_OP_POP);
+  consume(hl_TOKEN_SEMICOLON, "Expected ';' after variable declaration.");
+}
+
+static void varDeclaration() {
+  if (match(hl_TOKEN_LBRACKET)) {
+    u8 variables[UINT8_MAX];
+    u8 variableCount = 0;
+    do {
+      if (variableCount == 255) {
+        error("Cannot have more than 255 variables per var.");
+        return;
+      }
+
+      consume(hl_TOKEN_IDENTIFIER, "Expected identifier.");
+      u8 nameConstant = identifierConstant(&parser.previous);
+      variables[variableCount++] = nameConstant;
+      declareVariable();
+    } while (match(hl_TOKEN_COMMA));
+
+    consume(hl_TOKEN_RBRACKET, "Expected ']'.");
+    consume(hl_TOKEN_EQUAL, "Expected '='.");
     expression();
+
+    for (u8 i = 0; i < variableCount; i++) {
+      emitBytes(hl_OP_DESTRUCT_ARRAY, i);
+      defineVariable(variables[i]);
+    }
+
+    emitByte(hl_OP_POP);
   } else {
-    emitByte(hl_OP_NIL);
+    u8 global = parseVariable("Expected identifier.");
+
+    if (match(hl_TOKEN_EQUAL)) {
+      expression();
+    } else {
+      emitByte(hl_OP_NIL);
+    }
+
+    defineVariable(global);
   }
 
   consume(hl_TOKEN_SEMICOLON, "Expected ';' after variable declaration.");
-
-  defineVariable(global);
 }
 
 static void structDeclaration() {
@@ -1207,6 +1280,8 @@ static void synchronize() {
 static void declaration() {
   if (match(hl_TOKEN_VAR)) {
     varDeclaration();
+  } else if (match(hl_TOKEN_LBRACKET)) {
+    arrayDestructAssignment();
   } else if (match(hl_TOKEN_FUNC)) {
     functionDeclaration();
   } else if (match(hl_TOKEN_STRUCT)) {

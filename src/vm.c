@@ -62,7 +62,12 @@ static hl_Value wrap_error(s32 argCount, hl_Value* args, bool* failed) {
     return hl_NEW_NIL;
   }
 
-  runtimeError("User error: %s", hl_AS_CSTRING(hl_valueToChars(args[0])));
+  if (!hl_IS_OBJ(args[1]) || hl_OBJ_TYPE(args[1]) != hl_OBJ_STRING) {
+    runtimeError("First arg should be string.");
+    return hl_NEW_NIL;
+  }
+
+  runtimeError("User error: %s", hl_AS_CSTRING(args[0]));
   return hl_NEW_NIL;
 }
 
@@ -83,15 +88,6 @@ static hl_Value wrap_clock(
   return hl_NEW_NUMBER((f64)clock() / CLOCKS_PER_SEC);
 }
 
-static hl_Value wrap_toString(s32 argCount, hl_Value* args, bool* failed) {
-  if (argCount != 1) {
-    runtimeError("Expected 1 argument, got %d", argCount);
-    *failed = true;
-    return hl_NEW_NIL;
-  }
-  return hl_valueToChars(args[0]);
-}
-
 void hl_initVm() {
   resetStack();
   vm.objects = NULL;
@@ -109,7 +105,6 @@ void hl_initVm() {
   hl_bindCFunction("clock", wrap_clock);
   hl_bindCFunction("print", wrap_print);
   hl_bindCFunction("error", wrap_error);
-  hl_bindCFunction("toString", wrap_toString);
 }
 
 void hl_freeVm() {
@@ -403,14 +398,12 @@ static enum hl_InterpretResult run() {
       case hl_OP_FALSE: hl_push(hl_NEW_BOOL(false)); break;
       case hl_OP_POP: hl_pop(); break;
       case hl_OP_ARRAY: {
-        struct hl_Array* array = hl_newArray();
         u8 elementCount = READ_BYTE();
+        struct hl_Array* array = hl_newArray(elementCount);
         for (u8 i = 1; i <= elementCount; i++) {
           hl_writeValueArray(&array->values, peek(elementCount - i));
         }
-        for (u8 i = 0; i < elementCount; i++) {
-          hl_pop();
-        }
+        vm.stackTop -= elementCount;
         hl_push(hl_NEW_OBJ(array));
         break;
       }
@@ -440,8 +433,30 @@ static enum hl_InterpretResult run() {
         break;
       }
       case hl_OP_SET_SUBSCRIPT: {
-        runtimeError("Set subscript not yet supported");
-        return hl_RES_RUNTIME_ERR;
+        if (!hl_IS_NUMBER(peek(1))) {
+          runtimeError("Can only use subscript operator with numbers.");
+          return hl_RES_RUNTIME_ERR;
+        }
+        s32 index = hl_AS_NUMBER(peek(1));
+
+        if (!hl_IS_ARRAY(peek(2))) {
+          runtimeError("Invalid target for subscript operator.");
+          return hl_RES_RUNTIME_ERR;
+        }
+
+        struct hl_Array* array = hl_AS_ARRAY(peek(2));
+
+        if (index < 0 || index > array->values.count) {
+          runtimeError("Index out of bounds. Array size is %d, but tried accessing %d",
+              array->values.count, index);
+          return hl_RES_RUNTIME_ERR;
+        }
+
+        array->values.values[index] = hl_pop();
+        hl_pop(); // Index
+        hl_pop(); // Array
+        hl_push(array->values.values[index]);
+        break;
       }
       case hl_OP_GET_GLOBAL: {
         struct hl_String* name = READ_STRING();
@@ -519,6 +534,18 @@ static enum hl_InterpretResult run() {
         hl_Value value = hl_pop();
         hl_pop();
         hl_push(value);
+        break;
+      }
+      case hl_OP_DESTRUCT_ARRAY: {
+        u8 index = READ_BYTE();
+
+        if (!hl_IS_ARRAY(peek(0))) {
+          runtimeError("Can only destruct arrays");
+          return hl_RES_RUNTIME_ERR;
+        }
+        struct hl_Array* array = hl_AS_ARRAY(peek(0));
+
+        hl_push(array->values.values[index]);
         break;
       }
       case hl_OP_EQUAL: {

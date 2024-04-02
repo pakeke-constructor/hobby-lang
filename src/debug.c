@@ -99,6 +99,8 @@ s32 hl_disassembleInstruction(struct hl_Chunk* chunk, s32 offset) {
       return constantInstruction("OP_GET_PROPERTY", chunk, offset);
     case hl_OP_SET_PROPERTY:
       return constantInstruction("OP_SET_PROPERTY", chunk, offset);
+    case hl_OP_DESTRUCT_ARRAY:
+      return byteInstruction("OP_DESTRUCT_ARRAY", chunk, offset);
     case hl_OP_STRUCT_FIELD:
       return simpleInstruction("OP_SET_STRUCT_FIELD", offset);
     case hl_OP_EQUAL:

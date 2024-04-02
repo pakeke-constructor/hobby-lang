@@ -25,6 +25,7 @@ enum hl_OpCode {
   hl_OP_PUSH_PROPERTY,
   hl_OP_GET_PROPERTY,
   hl_OP_SET_PROPERTY,
+  hl_OP_DESTRUCT_ARRAY,
   hl_OP_EQUAL,
   hl_OP_NOT_EQUAL,
   hl_OP_GREATER,

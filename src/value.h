@@ -87,8 +87,8 @@ void hl_initValueArray(struct hl_ValueArray* array);
 void hl_copyValueArray(struct hl_ValueArray* dest, struct hl_ValueArray* src);
 void hl_writeValueArray(struct hl_ValueArray* array, hl_Value value);
 void hl_freeValueArray(struct hl_ValueArray* array);
-hl_Value hl_valueToChars(hl_Value value);
 void hl_printValue(hl_Value value);
+void hl_reserveValueArray(struct hl_ValueArray* array, s32 size);
 bool hl_valuesEqual(hl_Value a, hl_Value b);
 
 #endif // _HOBBYL_VALUE_H
