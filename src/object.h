@@ -115,7 +115,7 @@ struct hl_Array {
   struct hl_ValueArray values;
 };
 
-struct hl_Array* hl_newArray(s32 initialElements);
+struct hl_Array* hl_newArray();
 struct hl_Enum* hl_newEnum(struct hl_String* name);
 struct hl_Closure* hl_newClosure(struct hl_Function* function);
 struct hl_Upvalue* hl_newUpvalue(hl_Value* slot);

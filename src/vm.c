@@ -399,11 +399,13 @@ static enum hl_InterpretResult run() {
       case hl_OP_POP: hl_pop(); break;
       case hl_OP_ARRAY: {
         u8 elementCount = READ_BYTE();
-        struct hl_Array* array = hl_newArray(elementCount);
+        struct hl_Array* array = hl_newArray();
+        hl_push(hl_NEW_OBJ(array));
+        hl_reserveValueArray(&array->values, elementCount);
         for (u8 i = 1; i <= elementCount; i++) {
-          hl_writeValueArray(&array->values, peek(elementCount - i));
+          hl_writeValueArray(&array->values, peek(elementCount - i + 1));
         }
-        vm.stackTop -= elementCount;
+        vm.stackTop -= elementCount + 1;
         hl_push(hl_NEW_OBJ(array));
         break;
       }

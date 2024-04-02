@@ -27,10 +27,9 @@ static struct hl_Obj* allocateObject(size_t size, enum hl_ObjType type) {
   return object;
 }
 
-struct hl_Array* hl_newArray(s32 initialElements) {
+struct hl_Array* hl_newArray() {
   struct hl_Array* array = ALLOCATE_OBJ(struct hl_Array, hl_OBJ_ARRAY);
   hl_initValueArray(&array->values);
-  hl_reserveValueArray(&array->values, initialElements);
   return array;
 }
 
