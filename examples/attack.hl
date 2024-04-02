@@ -11,7 +11,7 @@ func getAttackTypeString(type) {
     case AttackType:Magic => return "Magic";
     case AttackType:Ranged => return "Ranged";
     case AttackType:Env => return "Env";
-    default => error("Invalid attack type.");
+    else => error("Invalid attack type.");
   }
 }
 

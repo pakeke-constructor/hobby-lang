@@ -3,15 +3,23 @@ CFLAGS = -std=c11 -Wall -Wextra -Werror
 CFLAGS += -Isrc
 LDFLAGS = -lm
 
+ifndef OS
+	OS=linux
+endif
+
 RM = rm
 RMDIR = rm -r
+MKDIR = mkdir -p
 
 ifndef PROFILE
 	PROFILE = debug
 endif
 
 ifeq ($(PROFILE), debug)
-	CFLAGS += -O0 -g -fsanitize=address
+	CFLAGS += -O0 -g
+	ifneq ($(OS), windows)
+		CFLAGS += -fsanitize=address
+	endif
 endif
 
 ifeq ($(PROFILE), release)
@@ -31,13 +39,13 @@ EXE = $(BUILD)/hl_$(PROFILE)
 .PHONY: clean compile_flags
 
 $(EXE): $(OBJ)
-	@mkdir -p $(BUILD)
+	@$(MKDIR) $(BUILD)
 	@echo "Compiling $(EXE)..."
 	@$(CC) -o $(EXE) $(OBJ) $(CFLAGS) $(LDFLAGS)
 	@echo "Compile args: $(CC) $(CFLAGS)"
 
 $(BUILD)/%_$(PROFILE).o: %.c
-	@mkdir -p $(@D)
+	@$(MKDIR) $(@D)
 	@echo "Compiling $< -> $@..."
 	@$(CC) -o $@ -c $< $(CFLAGS) -MMD -MP
 

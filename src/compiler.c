@@ -588,19 +588,21 @@ static void variable(hl_UNUSED bool canAssign) {
     emitBytes(hl_OP_GET_GLOBAL, (u8)identifierConstant(&name));
     emitByte(hl_OP_INSTANCE);
 
-    do {
-      consume(hl_TOKEN_DOT, "Expected '.' before identifier.");
-      consume(hl_TOKEN_IDENTIFIER, "Expected identifier.");
-      struct hl_Token name = parser.previous;
-      consume(hl_TOKEN_EQUAL, "Expected '=' after identifier.");
-      expression();
+    if (check(hl_TOKEN_DOT)) {
+      do {
+        consume(hl_TOKEN_DOT, "Expected '.' before identifier.");
+        consume(hl_TOKEN_IDENTIFIER, "Expected identifier.");
+        struct hl_Token name = parser.previous;
+        consume(hl_TOKEN_EQUAL, "Expected '=' after identifier.");
+        expression();
 
-      emitBytes(hl_OP_INIT_PROPERTY, identifierConstant(&name));
+        emitBytes(hl_OP_INIT_PROPERTY, identifierConstant(&name));
 
-      if (!match(hl_TOKEN_COMMA) && !check(hl_TOKEN_RBRACE)) {
-        error("Expected ','.");
-      }
-    } while (!check(hl_TOKEN_RBRACE) && !check(hl_TOKEN_EOF));
+        if (!match(hl_TOKEN_COMMA) && !check(hl_TOKEN_RBRACE)) {
+          error("Expected ','.");
+        }
+      } while (!check(hl_TOKEN_RBRACE) && !check(hl_TOKEN_EOF));
+    }
 
     consume(hl_TOKEN_RBRACE, "Unterminated struct initializer.");
   } else { // Variable reference
@@ -1087,8 +1089,8 @@ void matchStatement() {
     } while (match(hl_TOKEN_CASE));
   }
 
-  if (match(hl_TOKEN_CASE_DEFAULT)) {
-    consume(hl_TOKEN_RIGHT_ARROW, "Expected '=>' after 'default'.");
+  if (match(hl_TOKEN_ELSE)) {
+    consume(hl_TOKEN_RIGHT_ARROW, "Expected '=>' after 'else'.");
     statement();
   }
 

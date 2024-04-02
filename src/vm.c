@@ -440,7 +440,7 @@ static enum hl_InterpretResult run() {
         break;
       }
       case hl_OP_SET_SUBSCRIPT: {
-        runtimeError("");
+        runtimeError("Set subscript not yet supported");
         return hl_RES_RUNTIME_ERR;
       }
       case hl_OP_GET_GLOBAL: {

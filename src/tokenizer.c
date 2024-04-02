@@ -119,7 +119,6 @@ static enum hl_TokenType identifierType() {
   switch (*tokenizer.start) {
     case 'v': return checkKeyword(1, 2, "ar", hl_TOKEN_VAR);
     case 'b': return checkKeyword(1, 4, "reak", hl_TOKEN_BREAK);
-    case 'd': return checkKeyword(1, 6, "efault", hl_TOKEN_CASE_DEFAULT);
     case 'c': {
       if (tokenizer.current - tokenizer.start > 1) {
         switch (*(tokenizer.start + 1)) {

@@ -31,7 +31,7 @@ enum hl_TokenType {
   hl_TOKEN_CONTINUE, hl_TOKEN_BREAK, hl_TOKEN_RETURN, // continue break return
   hl_TOKEN_IF, hl_TOKEN_ELSE, hl_TOKEN_MATCH, hl_TOKEN_CASE, // if else match case
   hl_TOKEN_STRUCT, hl_TOKEN_SELF, hl_TOKEN_FUNC, hl_TOKEN_STATIC, // struct self func static
-  hl_TOKEN_CASE_DEFAULT, hl_TOKEN_ENUM, // default enum
+  hl_TOKEN_ENUM, // enum
 
   // Built-in Types
   hl_TOKEN_NUMBER_TYPE, hl_TOKEN_STRING_TYPE, // Number String
