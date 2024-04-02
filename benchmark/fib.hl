@@ -7,6 +7,11 @@ func fib(n) {
 }
 
 var start = clock();
-print(fib(35));
+
+var i = 0;
+while ((i += 1) <= 5) {
+  print(fib(28));
+}
+
 print("Time: " .. toString(clock() - start));
 
