@@ -33,10 +33,6 @@ enum hl_TokenType {
   hl_TOKEN_STRUCT, hl_TOKEN_SELF, hl_TOKEN_FUNC, hl_TOKEN_STATIC, // struct self func static
   hl_TOKEN_ENUM, // enum
 
-  // Built-in Types
-  hl_TOKEN_NUMBER_TYPE, hl_TOKEN_STRING_TYPE, // Number String
-  hl_TOKEN_BOOL_TYPE, // Bool
-
   // literals
   hl_TOKEN_TRUE, hl_TOKEN_FALSE, hl_TOKEN_NIL, // true false nil
   hl_TOKEN_IDENTIFIER, hl_TOKEN_STRING, hl_TOKEN_NUMBER,

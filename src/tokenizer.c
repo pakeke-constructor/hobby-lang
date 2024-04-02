@@ -170,9 +170,6 @@ static enum hl_TokenType identifierType() {
     case 't': return checkKeyword(1, 3, "rue", hl_TOKEN_TRUE);
     case 'n': return checkKeyword(1, 2, "il", hl_TOKEN_NIL);
     case 'r': return checkKeyword(1, 5, "eturn", hl_TOKEN_RETURN);
-    case 'N': return checkKeyword(1, 5, "umber", hl_TOKEN_NUMBER_TYPE);
-    case 'S': return checkKeyword(1, 5, "tring", hl_TOKEN_STRING_TYPE);
-    case 'B': return checkKeyword(1, 3, "ool", hl_TOKEN_BOOL_TYPE);
   }
 
   return hl_TOKEN_IDENTIFIER;
