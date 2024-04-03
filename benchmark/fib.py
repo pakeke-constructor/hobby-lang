@@ -8,5 +8,5 @@ def fib(n):
 start = time.time()
 
 for i in range(0, 5):
-    print(fib(35))
+    print(fib(28))
 print("Time:", time.time() - start)

@@ -168,6 +168,7 @@ static void initCompiler(struct Parser* parser,
   compiler->function = NULL;
   compiler->type = type;
 
+  compiler->localOffset = 0;
   compiler->localCount = 0;
   compiler->scopeDepth = 0;
   compiler->function = newFunction(parser->H);
@@ -203,8 +204,8 @@ static struct Function* endCompiler(struct Parser* parser) {
 
 #ifdef DEBUG_PRINT_CODE
   if (!parser->hadError) {
-    disassembleChunk(
-        currentChunk(),
+    disassembleFunction(
+        parser->compiler->function,
         function, function->name != NULL ? function->name->chars : "<script>");
   }
 #endif
@@ -282,7 +283,7 @@ s32 opCodeArgCount(struct Parser* parser, enum Bytecode opCode, s32 ip) {
 
 static s32 discardLocals(struct Parser* parser) {
   s32 discarded = 0;
-  while (parser->compiler->localCount > 0
+  while (parser->compiler->localCount - discarded > 0
       && parser->compiler->locals[parser->compiler->localCount - 1].depth
          > parser->compiler->scopeDepth) {
     if (parser->compiler->locals
@@ -328,9 +329,9 @@ static void beginScope(struct Parser* parser) {
 }
 
 static void endScope(struct Parser* parser) {
+  parser->compiler->scopeDepth--;
   s32 discarded = discardLocals(parser);
   parser->compiler->localCount -= discarded;
-  parser->compiler->scopeDepth--;
 }
 
 static void expression(struct Parser* parser);
@@ -340,8 +341,8 @@ static struct ParseRule* getRule(enum TokenType type);
 static void parsePrecedence(struct Parser* parser, enum Precedence precedence);
 static void block(struct Parser* parser);
 
-static void markInitialized(struct Parser* parser) {
-  if (parser->compiler->scopeDepth == 0) {
+static void markInitialized(struct Parser* parser, bool isGlobal) {
+  if (isGlobal) {
     return;
   }
 
@@ -349,9 +350,9 @@ static void markInitialized(struct Parser* parser) {
       = parser->compiler->scopeDepth;
 }
 
-static void defineVariable(struct Parser* parser, u8 global) {
-  if (parser->compiler->scopeDepth > 0) {
-    markInitialized(parser);
+static void defineVariable(struct Parser* parser, u8 global, bool isGlobal) {
+  if (!isGlobal) {
+    markInitialized(parser, isGlobal);
     return;
   }
 
@@ -429,16 +430,18 @@ static void addLocal(struct Parser* parser, struct Token name) {
     return;
   }
 
+  // s32 offset = parser->compiler->localOffset;
   struct Local* local = 
-      &parser->compiler->locals[parser->compiler->localCount++];
+      &parser->compiler->locals[parser->compiler->localCount];
+  parser->compiler->localCount++;
   local->name = name;
   local->isCaptured = false;
   local->depth = -1;
   local->depth = parser->compiler->scopeDepth;
 }
 
-static void declareVariable(struct Parser* parser) {
-  if (parser->compiler->scopeDepth == 0) {
+static void declareVariable(struct Parser* parser, bool isGlobal) {
+  if (isGlobal) {
     return;
   }
   
@@ -458,11 +461,11 @@ static void declareVariable(struct Parser* parser) {
   addLocal(parser, *name);
 }
 
-static u8 parseVariable(struct Parser* parser, const char* errorMessage) {
+static u8 parseVariable(struct Parser* parser, bool isGlobal, const char* errorMessage) {
   consume(parser, TOKEN_IDENTIFIER, errorMessage);
 
-  declareVariable(parser);
-  if (parser->compiler->scopeDepth > 0) {
+  declareVariable(parser, isGlobal);
+  if (!isGlobal) {
     return 0;
   }
 
@@ -536,7 +539,7 @@ static void namedVariable(struct Parser* parser, struct Token name, bool canAssi
 static void variable(struct Parser* parser, UNUSED bool canAssign) {
   struct Token name = parser->previous;
   if (match(parser, TOKEN_LBRACE)) { // Struct initalization
-    emitBytes(parser, BC_GET_GLOBAL, (u8)identifierConstant(parser, &name));
+    namedVariable(parser, name, canAssign);
     emitByte(parser, BC_INSTANCE);
 
     if (check(parser, TOKEN_DOT)) {
@@ -694,8 +697,8 @@ static void function(struct Parser* parser, enum FunctionType type, bool isLambd
         if (parser->compiler->function->arity == 255) {
           errorAtCurrent(parser, "Too many parameters. Max is 255.");
         }
-        u8 constant = parseVariable(parser, "Expected variable name.");
-        defineVariable(parser, constant);
+        u8 constant = parseVariable(parser, false, "Expected variable name.");
+        defineVariable(parser, constant, false);
       } while (match(parser, TOKEN_COMMA));
     }
     consume(parser, TOKEN_RPAREN, "Expected ')'.");
@@ -872,11 +875,14 @@ static void method(struct Parser* parser, bool isStatic) {
   emitBytes(parser, isStatic ? BC_STATIC_METHOD : BC_METHOD, constant);
 }
 
-static void functionDeclaration(struct Parser* parser) {
-  u8 global = parseVariable(parser, "Expected function name.");
-  markInitialized(parser);
+static void functionDeclaration(struct Parser* parser, bool isGlobal) {
+  if (parser->compiler->scopeDepth > 0) {
+    error(parser, "Can only define functions in top level code.");
+  }
+  u8 global = parseVariable(parser, isGlobal, "Expected function name.");
+  markInitialized(parser, isGlobal);
   function(parser, FUNCTION_TYPE_FUNCTION, false);
-  defineVariable(parser, global);
+  defineVariable(parser, global, isGlobal);
 }
 
 static void arrayDestructAssignment(struct Parser* parser) {
@@ -924,34 +930,49 @@ static void arrayDestructAssignment(struct Parser* parser) {
   consume(parser, TOKEN_SEMICOLON, "Expected ';' after variable declaration.");
 }
 
-static void varDeclaration(struct Parser* parser) {
+static void varDeclaration(struct Parser* parser, bool isGlobal) {
   if (match(parser, TOKEN_LBRACKET)) {
     u8 variables[UINT8_MAX];
+    struct Token tokens[UINT8_MAX];
     u8 variableCount = 0;
+    // parse [x, y]
     do {
-      if (variableCount == 255) {
+      if (variableCount == UINT8_MAX) {
         error(parser, "Cannot have more than 255 variables per var.");
         return;
       }
 
-      consume(parser, TOKEN_IDENTIFIER, "Expected identifier.");
-      u8 nameConstant = identifierConstant(parser, &parser->previous);
-      variables[variableCount++] = nameConstant;
-      declareVariable(parser);
+      struct Token identifier = parser->current;
+      u8 nameConstant = parseVariable(parser, isGlobal, "Expected identifier.");
+      variables[variableCount] = nameConstant;
+      tokens[variableCount] = identifier;
+      variableCount++;
+
+      if (!isGlobal) {
+        emitByte(parser, BC_NIL); // Reserve
+      }
     } while (match(parser, TOKEN_COMMA));
 
     consume(parser, TOKEN_RBRACKET, "Expected ']'.");
     consume(parser, TOKEN_EQUAL, "Expected '='.");
     expression(parser);
 
+    // Assign the values of the array.
     for (u8 i = 0; i < variableCount; i++) {
       emitBytes(parser, BC_DESTRUCT_ARRAY, i);
-      defineVariable(parser, variables[i]);
+      defineVariable(parser, variables[i], isGlobal);
+
+      // Can't set locals like this.
+      if (!isGlobal) {
+        u8 local = resolveLocal(parser, parser->compiler, &tokens[i]);
+        emitBytes(parser, BC_SET_LOCAL, local);
+        emitByte(parser, BC_POP);
+      }
     }
 
     emitByte(parser, BC_POP);
   } else {
-    u8 global = parseVariable(parser, "Expected identifier.");
+    u8 global = parseVariable(parser, isGlobal, "Expected identifier.");
 
     if (match(parser, TOKEN_EQUAL)) {
       expression(parser);
@@ -959,13 +980,17 @@ static void varDeclaration(struct Parser* parser) {
       emitByte(parser, BC_NIL);
     }
 
-    defineVariable(parser, global);
+    defineVariable(parser, global, isGlobal);
   }
 
   consume(parser, TOKEN_SEMICOLON, "Expected ';' after variable declaration.");
 }
 
-static void structDeclaration(struct Parser* parser) {
+static void localVarDeclaration(struct Parser* parser) {
+  varDeclaration(parser, false);
+}
+
+static void structDeclaration(struct Parser* parser, bool isGlobal) {
   if (parser->compiler->scopeDepth != 0) {
     error(parser, "Structs must be defined in top-level code.");
   }
@@ -977,10 +1002,10 @@ static void structDeclaration(struct Parser* parser) {
   consume(parser, TOKEN_IDENTIFIER, "Expected struct identifier.");
   struct Token structName = parser->previous;
   u8 nameConstant = identifierConstant(parser, &parser->previous);
-  declareVariable(parser);
+  declareVariable(parser, isGlobal);
 
   emitBytes(parser, BC_STRUCT, nameConstant);
-  defineVariable(parser, nameConstant);
+  defineVariable(parser, nameConstant, isGlobal);
 
   namedVariable(parser, structName, false);
 
@@ -1017,7 +1042,7 @@ static void structDeclaration(struct Parser* parser) {
   parser->structCompiler = parser->structCompiler->enclosing;
 }
 
-void enumDeclaration(struct Parser* parser) {
+void enumDeclaration(struct Parser* parser, bool isGlobal) {
   if (parser->compiler->scopeDepth != 0) {
     error(parser, "Enums must be defined in top-level code.");
   }
@@ -1025,10 +1050,10 @@ void enumDeclaration(struct Parser* parser) {
   consume(parser, TOKEN_IDENTIFIER, "Expected enum identifier.");
   struct Token enumName = parser->previous;
   u8 nameConstant = identifierConstant(parser, &parser->previous);
-  declareVariable(parser);
+  declareVariable(parser, isGlobal);
 
   emitBytes(parser, BC_ENUM, nameConstant);
-  defineVariable(parser, nameConstant);
+  defineVariable(parser, nameConstant, isGlobal);
 
   namedVariable(parser, enumName, false);
 
@@ -1055,6 +1080,20 @@ void enumDeclaration(struct Parser* parser) {
   consume(parser, TOKEN_RBRACE, "Unterminated enum declaration.");
 
   emitByte(parser, BC_POP); // Enum
+}
+
+static void globalDeclaration(struct Parser* parser) {
+  if (match(parser, TOKEN_VAR)) {
+    varDeclaration(parser, true);
+  } else if (match(parser, TOKEN_FUNC)) {
+    functionDeclaration(parser, true);
+  } else if (match(parser, TOKEN_STRUCT)) {
+    structDeclaration(parser, true);
+  } else if (match(parser, TOKEN_ENUM)) {
+    enumDeclaration(parser, true);
+  } else {
+    error(parser, "Expected a declaration after 'global'.");
+  }
 }
 
 static void expressionStatement(struct Parser* parser) {
@@ -1229,15 +1268,15 @@ static void synchronize(struct Parser* parser) {
 
 static void declaration(struct Parser* parser) {
   if (match(parser, TOKEN_VAR)) {
-    varDeclaration(parser);
-  } else if (match(parser, TOKEN_LBRACKET)) {
-    arrayDestructAssignment(parser);
+    localVarDeclaration(parser);
+  } else if (match(parser, TOKEN_GLOBAL)) {
+    globalDeclaration(parser);
   } else if (match(parser, TOKEN_FUNC)) {
-    functionDeclaration(parser);
+    functionDeclaration(parser, false);
   } else if (match(parser, TOKEN_STRUCT)) {
-    structDeclaration(parser);
+    structDeclaration(parser, false);
   } else if (match(parser, TOKEN_ENUM)) {
-    enumDeclaration(parser);
+    enumDeclaration(parser, false);
   } else {
     statement(parser);
   }
@@ -1266,6 +1305,8 @@ static void statement(struct Parser* parser) {
     continueStatement(parser);
   } else if (match(parser, TOKEN_RETURN)) {
     returnStatement(parser);
+  } else if (match(parser, TOKEN_LBRACKET)) {
+    arrayDestructAssignment(parser);
   } else {
     expressionStatement(parser);
   }
@@ -1284,6 +1325,7 @@ struct Function* compile(struct State* H, struct Parser* parser, const char* sou
 
   struct Compiler compiler;
   initCompiler(parser, &compiler, FUNCTION_TYPE_SCRIPT);
+  compiler.localOffset = 1;
 
   advance(parser);
   while (!match(parser, TOKEN_EOF)) {

@@ -111,6 +111,7 @@ static enum TokenType checkKeyword(
 
 static enum TokenType identifierType(struct Tokenizer* tokenizer) {
   switch (*tokenizer->start) {
+    case 'g': return checkKeyword(tokenizer, 1, 5, "lobal", TOKEN_GLOBAL);
     case 'v': return checkKeyword(tokenizer, 1, 2, "ar", TOKEN_VAR);
     case 'b': return checkKeyword(tokenizer, 1, 4, "reak", TOKEN_BREAK);
     case 'c': {

@@ -34,6 +34,7 @@ struct Compiler {
   struct Function* function;
   enum FunctionType type;
 
+  s32 localOffset;
   struct Local locals[U8_COUNT];
   struct Loop* loop;
   s32 localCount;

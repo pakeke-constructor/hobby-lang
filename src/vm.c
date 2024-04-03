@@ -458,7 +458,11 @@ static enum InterpretResult run(struct State* H) {
       }
       case BC_DEFINE_GLOBAL: {
         struct String* name = READ_STRING();
-        tableSet(H, &H->globals, name, peek(H, 0));
+        if (!tableSet(H, &H->globals, name, peek(H, 0))) {
+          tableDelete(&H->globals, name);
+          runtimeError(H, "Redefinition of '%s'.", name->chars);
+          return RUNTIME_ERR;
+        }
         pop(H);
         break;
       }

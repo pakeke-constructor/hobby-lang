@@ -32,7 +32,7 @@ enum TokenType {
   TOKEN_CONTINUE, TOKEN_BREAK, TOKEN_RETURN, // continue break return
   TOKEN_IF, TOKEN_ELSE, TOKEN_MATCH, TOKEN_CASE, // if else match case
   TOKEN_STRUCT, TOKEN_SELF, TOKEN_FUNC, TOKEN_STATIC, // struct self func static
-  TOKEN_ENUM, // enum
+  TOKEN_GLOBAL, TOKEN_ENUM, // global enum
 
   // literals
   TOKEN_TRUE, TOKEN_FALSE, TOKEN_NIL, // true false nil

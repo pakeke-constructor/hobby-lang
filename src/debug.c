@@ -5,7 +5,7 @@
 #include "opcodes.h"
 #include "object.h"
 
-void disassembleChunk(struct Function* function, void* functionPointer, const char* name) {
+void disassembleFunction(struct Function* function, void* functionPointer, const char* name) {
   printf("== %s (%p) ==\n", name, functionPointer);
 
   for (int offset = 0; offset < function->bcCount;) {
@@ -165,8 +165,14 @@ s32 disassembleInstruction(struct Function* function, s32 offset) {
       return simpleInstruction("OP_RETURN", offset);
     case BC_ENUM:
       return constantInstruction("OP_ENUM", function, offset);
-    case BC_ENUM_VALUE:
-      return byteInstruction("OP_ENUM_VALUE", function, offset);
+    case BC_ENUM_VALUE: {
+      u8 constant = function->bc[offset + 1];
+      u8 slot = function->bc[offset + 2];
+      printf("%-16s %4d %4d '", "OP_ENUM_VALUE", slot, constant);
+      printValue(function->constants.values[constant]);
+      printf("'\n");
+      return offset + 3; 
+    }
     case BC_STRUCT:
       return constantInstruction("OP_STRUCT", function, offset);
     case BC_METHOD:

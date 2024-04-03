@@ -6,5 +6,7 @@ local function fib(n)
 end
 
 local start = os.clock()
-print(fib(35))
+for _=1, 5 do
+  print(fib(28))
+end
 print("Time:", os.clock() - start)
