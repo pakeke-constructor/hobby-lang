@@ -1337,6 +1337,10 @@ struct Function* compile(struct State* H, struct Parser* parser, const char* sou
 }
 
 void markCompilerRoots(struct State* H, struct Parser* parser) {
+  if (parser == NULL) {
+    return;
+  }
+
   struct Compiler* compiler = parser->compiler;
   while (compiler != NULL) {
     markObject(H, (struct Obj*)compiler->function);

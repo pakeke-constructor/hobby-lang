@@ -18,7 +18,7 @@ void* reallocate(struct State* H, void* pointer, size_t oldSize, size_t newSize)
   H->bytesAllocated += newSize - oldSize;
   if (newSize > oldSize) {
 #ifdef DEBUG_STRESS_GC
-    collectGarbage();
+    collectGarbage(H);
 #else
     if (H->bytesAllocated > H->nextGc) {
       collectGarbage(H);
@@ -262,7 +262,7 @@ static void sweep(struct State* H) {
 void collectGarbage(struct State* H) {
 #ifdef DEBUG_LOG_GC
   printf("-- gc begin\n");
-  size_t before = vm.bytesAllocated;
+  size_t before = H->bytesAllocated;
 #endif
 
   markRoots(H);
@@ -274,7 +274,7 @@ void collectGarbage(struct State* H) {
 
 #ifdef DEBUG_LOG_GC
   printf("Collected %zu bytes (from %zu to %zu) next at %zu.\n",
-      before - vm.bytesAllocated, before, vm.bytesAllocated, vm.nextGc);
+      before - H->bytesAllocated, before, H->bytesAllocated, H->nextGc);
   printf("-- gc end\n");
 #endif
 }

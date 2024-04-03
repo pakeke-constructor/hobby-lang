@@ -78,6 +78,7 @@ static Value wrap_clock(UNUSED struct State* H) {
 
 void initState(struct State* H) {
   H->objects = NULL;
+  H->parser = NULL;
 
   H->bytesAllocated = 0;
   H->nextGc = 1024 * 1024;
