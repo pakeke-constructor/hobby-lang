@@ -281,11 +281,11 @@ s32 opCodeArgCount(struct Parser* parser, enum Bytecode opCode, s32 ip) {
   return -1;
 }
 
-static s32 discardLocals(struct Parser* parser) {
+static s32 discardLocals(struct Parser* parser, s32 toScope) {
   s32 discarded = 0;
   while (parser->compiler->localCount - discarded > 0
-      && parser->compiler->locals[parser->compiler->localCount - 1].depth
-         > parser->compiler->scopeDepth) {
+      && parser->compiler->locals[parser->compiler->localCount - discarded - 1].depth
+         > toScope) {
     if (parser->compiler->locals
         [parser->compiler->localCount - discarded - 1].isCaptured) {
       emitByte(parser, BC_CLOSE_UPVALUE);
@@ -302,26 +302,45 @@ static void beginLoop(struct Parser* parser, struct Loop* loop) {
   loop->start = currentFunction(parser)->bcCount;
   loop->scopeDepth = parser->compiler->scopeDepth;
   loop->enclosing = parser->compiler->loop;
+  loop->isNamed = false;
+  loop->breakCount = 0;
   parser->compiler->loop = loop;
 }
 
 static void endLoop(struct Parser* parser, struct Loop* loop) {
-  s32 end = currentFunction(parser)->bcCount;
+  // s32 end = currentFunction(parser)->bcCount;
 
-  // Go through the whole body of the loop, find any jumps to the end and patch
-  // them in.
-  for (s32 instruction = loop->bodyStart; instruction < end;) {
-    enum Bytecode opCode = currentFunction(parser)->bc[instruction];
-    if (opCode == BC_BREAK) {
-      currentFunction(parser)->bc[instruction] = BC_JUMP;
-      patchJump(parser, instruction + 1);
-      instruction += 3;
-    } else {
-      instruction += opCodeArgCount(parser, opCode, instruction) + 1;
-    }
+  for (s32 i = 0; i < loop->breakCount; i++) {
+    s32 breakIndex = loop->breakIndices[i];
+    currentFunction(parser)->bc[breakIndex] = BC_JUMP;
+    patchJump(parser, breakIndex + 1);
   }
 
   parser->compiler->loop = loop->enclosing;
+}
+
+static bool identifiersEqual(struct Token* a, struct Token* b) {
+  if (a->length != b->length) {
+    return false;
+  }
+  return memcmp(a->start, b->start, a->length) == 0;
+}
+
+static struct Loop* resolveLoopLabel(struct Parser* parser, struct Token* name) {
+  struct Loop* loop = parser->compiler->loop;
+
+  while (loop != NULL) {
+    if (!loop->isNamed) {
+      loop = loop->enclosing;
+    }
+
+    if (identifiersEqual(name, &loop->name)) {
+      return loop;
+    }
+    loop = loop->enclosing;
+  }
+
+  return NULL;
 }
 
 static void beginScope(struct Parser* parser) {
@@ -330,7 +349,7 @@ static void beginScope(struct Parser* parser) {
 
 static void endScope(struct Parser* parser) {
   parser->compiler->scopeDepth--;
-  s32 discarded = discardLocals(parser);
+  s32 discarded = discardLocals(parser, parser->compiler->scopeDepth);
   parser->compiler->localCount -= discarded;
 }
 
@@ -361,13 +380,6 @@ static void defineVariable(struct Parser* parser, u8 global, bool isGlobal) {
 
 static u8 identifierConstant(struct Parser* parser, struct Token* name) {
   return makeConstant(parser, NEW_OBJ(copyString(parser->H, name->start, name->length)));
-}
-
-static bool identifiersEqual(struct Token* a, struct Token* b) {
-  if (a->length != b->length) {
-    return false;
-  }
-  return memcmp(a->start, b->start, a->length) == 0;
 }
 
 static s32 resolveLocal(
@@ -1195,8 +1207,18 @@ static void continueStatement(struct Parser* parser) {
     error(parser, "Cannot use 'continue' outside of a loop.");
   }
 
-  discardLocals(parser);
-  emitLoop(parser, parser->compiler->loop->start);
+  struct Loop* loop = parser->compiler->loop;
+  if (match(parser, TOKEN_IDENTIFIER)) {
+    loop = resolveLoopLabel(parser, &parser->previous);
+    if (loop == NULL) {
+      error(parser, "Invalid continue target.");
+      return;
+    }
+  }
+
+  discardLocals(parser, loop->scopeDepth);
+
+  emitLoop(parser, loop->start);
   consume(parser, TOKEN_SEMICOLON, "Expected semicolon after 'break'.");
 }
 
@@ -1205,8 +1227,25 @@ static void breakStatement(struct Parser* parser) {
     error(parser, "Cannot use 'break' outside of a loop.");
   }
 
-  discardLocals(parser);
-  emitJump(parser, BC_BREAK);
+  struct Loop* loop = parser->compiler->loop;
+  if (match(parser, TOKEN_IDENTIFIER)) {
+    loop = resolveLoopLabel(parser, &parser->previous);
+    if (loop == NULL) {
+      error(parser, "Invalid break target.");
+      return;
+    }
+  }
+
+  discardLocals(parser, loop->scopeDepth);
+
+  s32 index = emitJump(parser, BC_BREAK) - 1;
+
+  if (loop->breakCount == UINT8_MAX) {
+    error(parser, "Too many break statements in a loop.");
+    return;
+  }
+  loop->breakIndices[loop->breakCount++] = index;
+
   consume(parser, TOKEN_SEMICOLON, "Expected semicolon after 'break'.");
 }
 
@@ -1217,6 +1256,11 @@ static void whileStatement(struct Parser* parser) {
   consume(parser, TOKEN_LPAREN, "Expected '(' before while condition.");
   expression(parser);
   consume(parser, TOKEN_RPAREN, "Expected ')' after while condition.");
+
+  if (match(parser, TOKEN_IDENTIFIER)) {
+    loop.isNamed = true;
+    loop.name = parser->previous;
+  }
 
   s32 exitJump = emitJump(parser, BC_JUMP_IF_FALSE);
   emitByte(parser, BC_POP);

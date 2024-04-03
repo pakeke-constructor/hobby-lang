@@ -8,6 +8,10 @@ struct Loop {
   s32 start;
   s32 bodyStart;
   s32 scopeDepth;
+  s32 breakIndices[UINT8_MAX];
+  u8 breakCount;
+  bool isNamed;
+  struct Token name;
   struct Loop* enclosing;
 };
 
