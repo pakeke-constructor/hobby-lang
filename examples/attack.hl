@@ -20,13 +20,11 @@ struct Attack {
   var damage;
   var piercing;
 
-  static func new(type, damage, piercing) {
-    return Attack {
-      .type = type,
-      .damage = damage,
-      .piercing = piercing,
-    };
-  }
+  static func new(type, damage, piercing) => Attack {
+    .type = type,
+    .damage = damage,
+    .piercing = piercing,
+  };
 
   func displayStats() {
     print("Type: ");
