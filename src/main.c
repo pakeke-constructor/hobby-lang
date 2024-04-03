@@ -5,7 +5,7 @@
 #include "common.h"
 #include "vm.h"
 
-static void repl(struct hl_State* H) {
+static void repl(struct State* H) {
   char line[1024];
 
   while (true) {
@@ -16,7 +16,7 @@ static void repl(struct hl_State* H) {
       break;
     }
 
-    hl_interpret(H, line);
+    interpret(H, line);
   }
 }
 
@@ -48,19 +48,19 @@ static char* readFile(const char* path) {
   return buffer;
 }
 
-static void runFile(struct hl_State* H, const char* path) {
+static void runFile(struct State* H, const char* path) {
   char* source = readFile(path);
-  enum hl_InterpretResult result = hl_interpret(H, source);
+  enum InterpretResult result = interpret(H, source);
   free(source);
 
-  if (result != hl_RES_INTERPRET_OK) {
+  if (result != INTERPRET_OK) {
     exit(1);
   }
 }
 
 s32 main(s32 argc, const char* args[]) {
-  struct hl_State H;
-  hl_initState(&H);
+  struct State H;
+  initState(&H);
 
   if (argc == 1) {
     repl(&H);
@@ -71,7 +71,7 @@ s32 main(s32 argc, const char* args[]) {
     exit(1);
   }
 
-  hl_freeState(&H);
+  freeState(&H);
   return 0;
 }
 

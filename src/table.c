@@ -8,27 +8,27 @@
 
 #define TABLE_MAX_LOAD 0.75
 
-void hl_initTable(struct hl_Table* table) {
+void initTable(struct Table* table) {
   table->count = 0;
   table->capacity = 0;
   table->entries = NULL;
 }
 
-void hl_freeTable(struct hl_State* H, struct hl_Table* table) {
-  hl_FREE_ARRAY(H, struct hl_Entry, table->entries, table->capacity);
-  hl_initTable(table);
+void freeTable(struct State* H, struct Table* table) {
+  FREE_ARRAY(H, struct Entry, table->entries, table->capacity);
+  initTable(table);
 }
 
-static struct hl_Entry* findEntry(
-    struct hl_Entry* entries, s32 capacity, struct hl_String* key) {
+static struct Entry* findEntry(
+    struct Entry* entries, s32 capacity, struct String* key) {
   u32 index = key->hash & (capacity - 1);
-  struct hl_Entry* tombstone = NULL;
+  struct Entry* tombstone = NULL;
 
   while (true) {
-    struct hl_Entry* entry = &entries[index];
+    struct Entry* entry = &entries[index];
 
     if (entry->key == NULL) {
-      if (hl_IS_NIL(entry->value)) {
+      if (IS_NIL(entry->value)) {
         return tombstone != NULL ? tombstone : entry;
       } else {
         if (tombstone == NULL) {
@@ -43,42 +43,42 @@ static struct hl_Entry* findEntry(
   }
 }
 
-static void adjustCapacity(struct hl_State* H, struct hl_Table* table, s32 capacity) {
-  struct hl_Entry* entries = hl_ALLOCATE(H, struct hl_Entry, capacity);
+static void adjustCapacity(struct State* H, struct Table* table, s32 capacity) {
+  struct Entry* entries = ALLOCATE(H, struct Entry, capacity);
   for (s32 i = 0; i < capacity; i++) {
     entries[i].key = NULL;
-    entries[i].value = hl_NEW_NIL;
+    entries[i].value = NEW_NIL;
   }
 
   table->count = 0;
   for (s32 i = 0; i < table->capacity; i++) {
-    struct hl_Entry* entry = &table->entries[i];
+    struct Entry* entry = &table->entries[i];
     if (entry->key == NULL) {
       continue;
     }
 
-    struct hl_Entry* dst = findEntry(entries, capacity, entry->key);
+    struct Entry* dst = findEntry(entries, capacity, entry->key);
     dst->key = entry->key;
     dst->value = entry->value;
     table->count++;
   }
 
-  hl_FREE_ARRAY(H, struct hl_Entry, table->entries, table->capacity);
+  FREE_ARRAY(H, struct Entry, table->entries, table->capacity);
 
   table->entries = entries;
   table->capacity = capacity;
 }
 
-bool hl_tableSet(
-    struct hl_State* H, struct hl_Table* table, struct hl_String* key, hl_Value value) {
+bool tableSet(
+    struct State* H, struct Table* table, struct String* key, Value value) {
   if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
-    s32 capacity = hl_GROW_CAPACITY(table->capacity);
+    s32 capacity = GROW_CAPACITY(table->capacity);
     adjustCapacity(H, table, capacity);
   }
 
-  struct hl_Entry* entry = findEntry(table->entries, table->capacity, key);
+  struct Entry* entry = findEntry(table->entries, table->capacity, key);
   bool isNew = entry->key == NULL;
-  if (isNew && hl_IS_NIL(entry->value)) {
+  if (isNew && IS_NIL(entry->value)) {
     table->count++;
   }
 
@@ -87,13 +87,13 @@ bool hl_tableSet(
   return isNew;
 }
 
-bool hl_tableGet(
-    struct hl_Table* table, struct hl_String* key, hl_Value* outValue) {
+bool tableGet(
+    struct Table* table, struct String* key, Value* outValue) {
   if (table->count == 0) {
     return false;
   }
 
-  struct hl_Entry* entry = findEntry(table->entries, table->capacity, key);
+  struct Entry* entry = findEntry(table->entries, table->capacity, key);
   if (entry->key == NULL) {
     return false;
   }
@@ -102,32 +102,32 @@ bool hl_tableGet(
   return true;
 }
 
-bool hl_tableDelete(struct hl_Table* table, struct hl_String* key) {
+bool tableDelete(struct Table* table, struct String* key) {
   if (table->count == 0) {
     return false;
   }
 
-  struct hl_Entry* entry = findEntry(table->entries, table->capacity, key);
+  struct Entry* entry = findEntry(table->entries, table->capacity, key);
   if (entry->key == NULL) {
     return false;
   }
 
   entry->key = NULL;
-  entry->value = hl_NEW_BOOL(true);
+  entry->value = NEW_BOOL(true);
   return true;
 }
 
-struct hl_String* hl_tableFindString(
-    struct hl_Table* table, const char* chars, s32 length, u32 hash) {
+struct String* tableFindString(
+    struct Table* table, const char* chars, s32 length, u32 hash) {
   if (table->count == 0) {
     return NULL;
   }
 
   u32 index = hash & (table->capacity - 1);
   while (true) {
-    struct hl_Entry* entry = &table->entries[index];
+    struct Entry* entry = &table->entries[index];
     if (entry->key == NULL) {
-      if (hl_IS_NIL(entry->value)) {
+      if (IS_NIL(entry->value)) {
         return NULL;
       }
     } else if (entry->key->length == length
@@ -140,28 +140,28 @@ struct hl_String* hl_tableFindString(
   }
 }
 
-void hl_tableRemoveUnmarked(struct hl_Table* table) {
+void tableRemoveUnmarked(struct Table* table) {
   for (s32 i = 0; i < table->capacity; i++) {
-    struct hl_Entry* entry = &table->entries[i];
+    struct Entry* entry = &table->entries[i];
     if (entry->key != NULL && !entry->key->obj.isMarked) {
-      hl_tableDelete(table, entry->key);
+      tableDelete(table, entry->key);
     }
   }
 }
 
-void hl_markTable(struct hl_State* H, struct hl_Table* table) {
+void markTable(struct State* H, struct Table* table) {
   for (s32 i = 0; i < table->capacity; i++) {
-    struct hl_Entry* entry = &table->entries[i];
-    hl_markObject(H, (struct hl_Obj*)entry->key);
-    hl_markValue(H, entry->value);
+    struct Entry* entry = &table->entries[i];
+    markObject(H, (struct Obj*)entry->key);
+    markValue(H, entry->value);
   }
 }
 
-void hl_copyTable(struct hl_State* H, struct hl_Table* dest, struct hl_Table* src) {
+void copyTable(struct State* H, struct Table* dest, struct Table* src) {
   for (s32 i = 0; i < src->capacity; i++) {
-    struct hl_Entry* entry = &src->entries[i];
+    struct Entry* entry = &src->entries[i];
     if (entry->key != NULL) {
-      hl_tableSet(H, dest, entry->key, entry->value);
+      tableSet(H, dest, entry->key, entry->value);
     }
   }
 }

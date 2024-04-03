@@ -2,20 +2,19 @@
 #define _HOBBYL_TABLE_H
 
 #include "common.h"
-#include "value.h"
 #include "object.h"
 
-void hl_initTable(struct hl_Table* table);
-void hl_freeTable(struct hl_State* H, struct hl_Table* table);
-bool hl_tableSet(
-    struct hl_State* H, struct hl_Table* table, struct hl_String* key, hl_Value value);
-bool hl_tableGet(
-    struct hl_Table* table, struct hl_String* key, hl_Value* outValue);
-bool hl_tableDelete(struct hl_Table* table, struct hl_String* key);
-struct hl_String* hl_tableFindString(
-    struct hl_Table* table, const char* chars, s32 length, u32 hash);
-void hl_tableRemoveUnmarked(struct hl_Table* table);
-void hl_copyTable(struct hl_State* H, struct hl_Table* dest, struct hl_Table* src);
-void hl_markTable(struct hl_State* H, struct hl_Table* table);
+void initTable(struct Table* table);
+void freeTable(struct State* H, struct Table* table);
+bool tableSet(
+    struct State* H, struct Table* table, struct String* key, Value value);
+bool tableGet(
+    struct Table* table, struct String* key, Value* outValue);
+bool tableDelete(struct Table* table, struct String* key);
+struct String* tableFindString(
+    struct Table* table, const char* chars, s32 length, u32 hash);
+void tableRemoveUnmarked(struct Table* table);
+void copyTable(struct State* H, struct Table* dest, struct Table* src);
+void markTable(struct State* H, struct Table* table);
 
 #endif // _HOBBYL_TABLE_H

@@ -5,18 +5,18 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// #define hl_DEBUG_TRACE_EXECUTION
-// #define hl_DEBUG_PRINT_CODE
+// #define DEBUG_TRACE_EXECUTION
+// #define DEBUG_PRINT_CODE
 
-// #define hl_DEBUG_STRESS_GC
-// #define hl_DEBUG_LOG_GC
+// #define DEBUG_STRESS_GC
+// #define DEBUG_LOG_GC
 
 #define NAN_BOXING
 
-#define hl_UNUSED __attribute__((unused))
-#define hl_FALLTHROUGH __attribute__((fallthrough))
+#define UNUSED __attribute__((unused))
+#define FALLTHROUGH __attribute__((fallthrough))
 
-#define hl_U8_COUNT (UINT8_MAX + 1)
+#define U8_COUNT (UINT8_MAX + 1)
 
 typedef uint8_t  u8;
 typedef int8_t   s8;
