@@ -4,18 +4,11 @@
 
 #include "common.h"
 
-struct Tokenizer {
-  const char* start;
-  const char* current;
-  s32 line;
-};
-
-struct Tokenizer tokenizer;
-
-void initTokenizer(const char* source) {
-  tokenizer.start = source;
-  tokenizer.current = source;
-  tokenizer.line = 1;
+void initTokenizer(struct State* H, struct Tokenizer* tokenizer, const char* source) {
+  tokenizer->H = H;
+  tokenizer->start = source;
+  tokenizer->end = source;
+  tokenizer->line = 1;
 }
 
 static bool isDigit(char c) {
@@ -28,71 +21,71 @@ static bool isAlpha(char c) {
       ||  c == '_';
 }
 
-static bool isAtEnd() {
-  return *tokenizer.current == '\0';
+static bool isAtEnd(struct Tokenizer* tokenizer) {
+  return *tokenizer->end == '\0';
 }
 
-static char advance() {
-  tokenizer.current++;
-  return tokenizer.current[-1];
+static char advance(struct Tokenizer* tokenizer) {
+  tokenizer->end++;
+  return tokenizer->end[-1];
 }
 
-static char peek() {
-  return *tokenizer.current;
+static char peek(struct Tokenizer* tokenizer) {
+  return *tokenizer->end;
 }
 
-static char peekNext() {
-  if (isAtEnd()) {
+static char peekNext(struct Tokenizer* tokenizer) {
+  if (isAtEnd(tokenizer)) {
     return '\0';
   }
-  return *(tokenizer.current + 1);
+  return *(tokenizer->end + 1);
 }
 
-static bool match(char expected) {
-  if (isAtEnd()) {
+static bool match(struct Tokenizer* tokenizer, char expected) {
+  if (isAtEnd(tokenizer)) {
     return false;
   }
-  if (*tokenizer.current != expected) {
+  if (*tokenizer->end != expected) {
     return false;
   }
-  tokenizer.current++;
+  tokenizer->end++;
   return true;
 }
 
-static struct Token makeToken(enum TokenType type) {
+static struct Token makeToken(struct Tokenizer* tokenizer, enum TokenType type) {
   struct Token token;
   token.type = type;
-  token.start = tokenizer.start;
-  token.length = (s32)(tokenizer.current - tokenizer.start);
-  token.line = tokenizer.line;
+  token.start = tokenizer->start;
+  token.length = (s32)(tokenizer->end - tokenizer->start);
+  token.line = tokenizer->line;
   return token;
 }
 
-static struct Token errorToken(const char* message) {
+static struct Token errorToken(struct Tokenizer* tokenizer, const char* message) {
   struct Token token;
   token.type = TOKEN_ERROR;
   token.start = message;
   token.length = (s32)strlen(message);
-  token.line = tokenizer.line;
+  token.line = tokenizer->line;
   return token;
 }
 
-static void skipWhitespace() {
+static void skipWhitespace(struct Tokenizer* tokenizer) {
   while (true) {
-    char c = peek();
+    char c = peek(tokenizer);
     switch (c) {
       case '\n':
-        tokenizer.line++;
+        tokenizer->line++;
         FALLTHROUGH;
       case ' ':
       case '\r':
       case '\t':
-        advance();
+        advance(tokenizer);
         break;
       case '/':
-        if (peekNext() == '/') {
-          while (peek() != '\n' && !isAtEnd()) {
-            advance();
+        if (peekNext(tokenizer) == '/') {
+          while (peek(tokenizer) != '\n' && !isAtEnd(tokenizer)) {
+            advance(tokenizer);
           }
         } else {
           return;
@@ -105,176 +98,178 @@ static void skipWhitespace() {
 }
 
 static enum TokenType checkKeyword(
-    s32 start, s32 length, const char* rest, enum TokenType type) {
-  if (tokenizer.current - tokenizer.start == start + length &&
-      memcmp(tokenizer.start + start, rest, length) == 0) {
+    struct Tokenizer* tokenizer,
+    s32 start, s32 length,
+    const char* rest, enum TokenType type) {
+  if (tokenizer->end - tokenizer->start == start + length &&
+      memcmp(tokenizer->start + start, rest, length) == 0) {
     return type;
   }
 
   return TOKEN_IDENTIFIER;
 }
 
-static enum TokenType identifierType() {
-  switch (*tokenizer.start) {
-    case 'v': return checkKeyword(1, 2, "ar", TOKEN_VAR);
-    case 'b': return checkKeyword(1, 4, "reak", TOKEN_BREAK);
+static enum TokenType identifierType(struct Tokenizer* tokenizer) {
+  switch (*tokenizer->start) {
+    case 'v': return checkKeyword(tokenizer, 1, 2, "ar", TOKEN_VAR);
+    case 'b': return checkKeyword(tokenizer, 1, 4, "reak", TOKEN_BREAK);
     case 'c': {
-      if (tokenizer.current - tokenizer.start > 1) {
-        switch (*(tokenizer.start + 1)) {
-          case 'a': return checkKeyword(2, 2, "se", TOKEN_CASE);
-          case 'o': return checkKeyword(2, 6, "ntinue", TOKEN_CONTINUE);
+      if (tokenizer->end - tokenizer->start > 1) {
+        switch (*(tokenizer->start + 1)) {
+          case 'a': return checkKeyword(tokenizer, 2, 2, "se", TOKEN_CASE);
+          case 'o': return checkKeyword(tokenizer, 2, 6, "ntinue", TOKEN_CONTINUE);
         }
       }
       break;
     }
-    case 'w': return checkKeyword(1, 4, "hile", TOKEN_WHILE);
+    case 'w': return checkKeyword(tokenizer, 1, 4, "hile", TOKEN_WHILE);
     case 'f': {
-      if (tokenizer.current - tokenizer.start > 1) {
-        switch (*(tokenizer.start + 1)) {
-          case 'a': return checkKeyword(2, 3, "lse", TOKEN_FALSE);
-          case 'o': return checkKeyword(2, 2, "or", TOKEN_FOR);
-          case 'u': return checkKeyword(2, 2, "nc", TOKEN_FUNC);
+      if (tokenizer->end - tokenizer->start > 1) {
+        switch (*(tokenizer->start + 1)) {
+          case 'a': return checkKeyword(tokenizer, 2, 3, "lse", TOKEN_FALSE);
+          case 'o': return checkKeyword(tokenizer, 2, 2, "or", TOKEN_FOR);
+          case 'u': return checkKeyword(tokenizer, 2, 2, "nc", TOKEN_FUNC);
         }
       }
       break;
     }
-    case 'l': return checkKeyword(1, 3, "oop", TOKEN_LOOP);
-    case 'i': return checkKeyword(1, 1, "f", TOKEN_IF);
+    case 'l': return checkKeyword(tokenizer, 1, 3, "oop", TOKEN_LOOP);
+    case 'i': return checkKeyword(tokenizer, 1, 1, "f", TOKEN_IF);
     case 'e':
-      if (tokenizer.current - tokenizer.start > 1) {
-        switch (*(tokenizer.start + 1)) {
-          case 'l': return checkKeyword(2, 2, "se", TOKEN_ELSE);
-          case 'n': return checkKeyword(2, 2, "um", TOKEN_ENUM);
+      if (tokenizer->end - tokenizer->start > 1) {
+        switch (*(tokenizer->start + 1)) {
+          case 'l': return checkKeyword(tokenizer, 2, 2, "se", TOKEN_ELSE);
+          case 'n': return checkKeyword(tokenizer, 2, 2, "um", TOKEN_ENUM);
         }
       }
       break;
-    case 'm': return checkKeyword(1, 4, "atch", TOKEN_MATCH);
+    case 'm': return checkKeyword(tokenizer, 1, 4, "atch", TOKEN_MATCH);
     case 's': {
-      if (tokenizer.current - tokenizer.start > 1) {
-        switch (*(tokenizer.start + 1)) {
+      if (tokenizer->end - tokenizer->start > 1) {
+        switch (*(tokenizer->start + 1)) {
           case 't': {
-            if (tokenizer.current - tokenizer.start > 1) {
-              switch (*(tokenizer.start + 2)) {
-                case 'a': return checkKeyword(3, 3, "tic", TOKEN_STATIC);
-                case 'r': return checkKeyword(3, 3, "uct", TOKEN_STRUCT);
+            if (tokenizer->end - tokenizer->start > 1) {
+              switch (*(tokenizer->start + 2)) {
+                case 'a': return checkKeyword(tokenizer, 3, 3, "tic", TOKEN_STATIC);
+                case 'r': return checkKeyword(tokenizer, 3, 3, "uct", TOKEN_STRUCT);
               }
             }
             break;
           }
-          case 'e': return checkKeyword(2, 2, "lf", TOKEN_SELF);
+          case 'e': return checkKeyword(tokenizer, 2, 2, "lf", TOKEN_SELF);
         }
       }
       break;
     }
-    case 't': return checkKeyword(1, 3, "rue", TOKEN_TRUE);
-    case 'n': return checkKeyword(1, 2, "il", TOKEN_NIL);
-    case 'r': return checkKeyword(1, 5, "eturn", TOKEN_RETURN);
+    case 't': return checkKeyword(tokenizer, 1, 3, "rue", TOKEN_TRUE);
+    case 'n': return checkKeyword(tokenizer, 1, 2, "il", TOKEN_NIL);
+    case 'r': return checkKeyword(tokenizer, 1, 5, "eturn", TOKEN_RETURN);
   }
 
   return TOKEN_IDENTIFIER;
 }
 
-static struct Token identifierOrKeyword() {
-  while (isAlpha(peek()) || isDigit(peek())) {
-    advance();
+static struct Token identifierOrKeyword(struct Tokenizer* tokenizer) {
+  while (isAlpha(peek(tokenizer)) || isDigit(peek(tokenizer))) {
+    advance(tokenizer);
   }
 
-  return makeToken(identifierType());
+  return makeToken(tokenizer, identifierType(tokenizer));
 }
 
-static struct Token number() {
-  while (isDigit(peek())) {
-    advance();
+static struct Token number(struct Tokenizer* tokenizer) {
+  while (isDigit(peek(tokenizer))) {
+    advance(tokenizer);
   }
 
-  if (peek() == '.' && isDigit(peekNext())) {
-    advance();
+  if (peek(tokenizer) == '.' && isDigit(peekNext(tokenizer))) {
+    advance(tokenizer);
 
-    while (isDigit(peek())) {
-      advance();
+    while (isDigit(peek(tokenizer))) {
+      advance(tokenizer);
     }
   }
 
-  return makeToken(TOKEN_NUMBER);
+  return makeToken(tokenizer, TOKEN_NUMBER);
 }
 
-static struct Token string(char terminator) {
-  while (peek() != terminator && !isAtEnd()) {
-    if (peek() == '\n') {
-      tokenizer.line++;
+static struct Token string(struct Tokenizer* tokenizer, char terminator) {
+  while (peek(tokenizer) != terminator && !isAtEnd(tokenizer)) {
+    if (peek(tokenizer) == '\n') {
+      tokenizer->line++;
     }
-    advance();
+    advance(tokenizer);
   }
 
-  if (isAtEnd()) {
-    return errorToken("Unterminated string.");
+  if (isAtEnd(tokenizer)) {
+    return errorToken(tokenizer, "Unterminated string.");
   }
 
-  advance();
-  return makeToken(TOKEN_STRING);
+  advance(tokenizer);
+  return makeToken(tokenizer, TOKEN_STRING);
 }
 
-struct Token nextToken() {
-  skipWhitespace();
-  tokenizer.start = tokenizer.current;
+struct Token nextToken(struct Tokenizer* tokenizer) {
+  skipWhitespace(tokenizer);
+  tokenizer->start = tokenizer->end;
 
-  if (isAtEnd()) {
-    return makeToken(TOKEN_EOF);
+  if (isAtEnd(tokenizer)) {
+    return makeToken(tokenizer, TOKEN_EOF);
   }
 
-  char c = advance();
+  char c = advance(tokenizer);
 
   if (isAlpha(c)) {
-    return identifierOrKeyword();
+    return identifierOrKeyword(tokenizer);
   }
   if (isDigit(c)) {
-    return number();
+    return number(tokenizer);
   }
 
   switch (c) {
-    case '(': return makeToken(TOKEN_LPAREN);
-    case ')': return makeToken(TOKEN_RPAREN);
-    case '{': return makeToken(TOKEN_LBRACE);
-    case '}': return makeToken(TOKEN_RBRACE);
-    case '[': return makeToken(TOKEN_LBRACKET);
-    case ']': return makeToken(TOKEN_RBRACKET);
-    case ';': return makeToken(TOKEN_SEMICOLON);
-    case ',': return makeToken(TOKEN_COMMA);
+    case '(': return makeToken(tokenizer, TOKEN_LPAREN);
+    case ')': return makeToken(tokenizer, TOKEN_RPAREN);
+    case '{': return makeToken(tokenizer, TOKEN_LBRACE);
+    case '}': return makeToken(tokenizer, TOKEN_RBRACE);
+    case '[': return makeToken(tokenizer, TOKEN_LBRACKET);
+    case ']': return makeToken(tokenizer, TOKEN_RBRACKET);
+    case ';': return makeToken(tokenizer, TOKEN_SEMICOLON);
+    case ',': return makeToken(tokenizer, TOKEN_COMMA);
     case '.': {
-      if (match('.')) { // Concat operator
-        return makeToken(match('=') ? TOKEN_DOT_DOT_EQUAL : TOKEN_DOT_DOT);
+      if (match(tokenizer, '.')) { // Concat operator
+        return makeToken(tokenizer, match(tokenizer, '=') ? TOKEN_DOT_DOT_EQUAL : TOKEN_DOT_DOT);
       }
-      return makeToken(TOKEN_DOT);
+      return makeToken(tokenizer, TOKEN_DOT);
     }
-    case ':': return makeToken(TOKEN_COLON);
-    case '+': return makeToken(match('=') ? TOKEN_PLUS_EQUAL : TOKEN_PLUS);
-    case '-': return makeToken(match('=') ? TOKEN_MINUS_EQUAL : TOKEN_MINUS);
+    case ':': return makeToken(tokenizer, TOKEN_COLON);
+    case '+': return makeToken(tokenizer, match(tokenizer, '=') ? TOKEN_PLUS_EQUAL : TOKEN_PLUS);
+    case '-': return makeToken(tokenizer, match(tokenizer, '=') ? TOKEN_MINUS_EQUAL : TOKEN_MINUS);
     case '*': {
-      if (match('*')) { // Pow operator
-        return makeToken(match('=') ? TOKEN_STAR_STAR_EQUAL : TOKEN_STAR_STAR);
+      if (match(tokenizer, '*')) { // Pow operator
+        return makeToken(tokenizer, match(tokenizer, '=') ? TOKEN_STAR_STAR_EQUAL : TOKEN_STAR_STAR);
       }
-      return makeToken(match('=') ? TOKEN_STAR_EQUAL : TOKEN_STAR);
+      return makeToken(tokenizer, match(tokenizer, '=') ? TOKEN_STAR_EQUAL : TOKEN_STAR);
     }
-    case '/': return makeToken(match('=') ? TOKEN_SLASH_EQUAL : TOKEN_SLASH);
-    case '%': return makeToken(match('=') ? TOKEN_PERCENT_EQUAL : TOKEN_PERCENT);
-    case '&': return match('&')
-        ? makeToken(TOKEN_AMP_AMP)
-        : errorToken("Did you mean '&&'? Bitwise operators not supported.");
-    case '|': return match('|')
-        ? makeToken(TOKEN_PIPE_PIPE)
-        : errorToken("Did you mean '||'? Bitwise operators not supported.");
-    case '!': return makeToken(match('=') ? TOKEN_BANG_EQUAL : TOKEN_BANG);
+    case '/': return makeToken(tokenizer, match(tokenizer, '=') ? TOKEN_SLASH_EQUAL : TOKEN_SLASH);
+    case '%': return makeToken(tokenizer, match(tokenizer, '=') ? TOKEN_PERCENT_EQUAL : TOKEN_PERCENT);
+    case '&': return match(tokenizer, '&')
+        ? makeToken(tokenizer, TOKEN_AMP_AMP)
+        : errorToken(tokenizer, "Did you mean '&&'? Bitwise operators not supported.");
+    case '|': return match(tokenizer, '|')
+        ? makeToken(tokenizer, TOKEN_PIPE_PIPE)
+        : errorToken(tokenizer, "Did you mean '||'? Bitwise operators not supported.");
+    case '!': return makeToken(tokenizer, match(tokenizer, '=') ? TOKEN_BANG_EQUAL : TOKEN_BANG);
     case '=': {
-      if (match('>')) {
-        return makeToken(TOKEN_RIGHT_ARROW);
+      if (match(tokenizer, '>')) {
+        return makeToken(tokenizer, TOKEN_RIGHT_ARROW);
       }
-      return makeToken(match('=') ? TOKEN_EQUAL_EQUAL : TOKEN_EQUAL);
+      return makeToken(tokenizer, match(tokenizer, '=') ? TOKEN_EQUAL_EQUAL : TOKEN_EQUAL);
     }
-    case '>': return makeToken(match('=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER);
-    case '<': return makeToken(match('=') ? TOKEN_LESS_EQUAL : TOKEN_LESS);
+    case '>': return makeToken(tokenizer, match(tokenizer, '=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER);
+    case '<': return makeToken(tokenizer, match(tokenizer, '=') ? TOKEN_LESS_EQUAL : TOKEN_LESS);
     case '\'':
-    case '"': return string(c);
+    case '"': return string(tokenizer, c);
   }
 
-  return errorToken("Unexpected character.");
+  return errorToken(tokenizer, "Unexpected character.");
 }

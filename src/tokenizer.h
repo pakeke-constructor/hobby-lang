@@ -2,6 +2,7 @@
 #define _HOBBYL_TOKENIZER_H
 
 #include "common.h"
+#include "object.h"
 
 enum TokenType {
   TOKEN_LPAREN, TOKEN_RPAREN, // ( )
@@ -47,7 +48,16 @@ struct Token {
   s32 line;
 };
 
-void initTokenizer(const char* source);
-struct Token nextToken();
+struct Tokenizer {
+  struct State* H;
+  const char* start;
+  const char* end;
+  struct Token prev;
+  struct Token current;
+  s32 line;
+};
+
+void initTokenizer(struct State* H, struct Tokenizer* tokenizer, const char* source);
+struct Token nextToken(struct Tokenizer* tokenizer);
 
 #endif // _HOBBYL_TOKENIZER_H

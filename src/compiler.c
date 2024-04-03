@@ -73,7 +73,7 @@ static void advance(struct Parser* parser) {
   parser->previous = parser->current;
 
   while (true) {
-    parser->current = nextToken();
+    parser->current = nextToken(parser->tokenizer);
     if (parser->current.type != TOKEN_ERROR) {
       break;
     }
@@ -1272,12 +1272,15 @@ static void statement(struct Parser* parser) {
 }
 
 struct Function* compile(struct State* H, struct Parser* parser, const char* source) {
-  initTokenizer(source);
-
-  parser->compiler = NULL;
   parser->H = H;
+  parser->compiler = NULL;
+  parser->tokenizer = NULL;
   parser->hadError = false;
   parser->panicMode = false;
+
+  struct Tokenizer tokenizer;
+  initTokenizer(H, &tokenizer, source);
+  parser->tokenizer = &tokenizer;
 
   struct Compiler compiler;
   initCompiler(parser, &compiler, FUNCTION_TYPE_SCRIPT);

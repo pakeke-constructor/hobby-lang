@@ -55,6 +55,7 @@ struct Parser {
   struct Token previous;
   struct Compiler* compiler;
   struct StructCompiler* structCompiler;
+  struct Tokenizer* tokenizer;
   bool hadError;
   bool panicMode;
 };
