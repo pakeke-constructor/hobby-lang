@@ -1,11 +1,9 @@
-#include "value.h"
+#include "object.h"
 
-#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "memory.h"
-#include "object.h"
 
 void hl_initValueArray(struct hl_ValueArray* array) {
   array->capacity = 0;
@@ -13,30 +11,30 @@ void hl_initValueArray(struct hl_ValueArray* array) {
   array->values = NULL;
 }
 
-void hl_copyValueArray(struct hl_ValueArray* dest, struct hl_ValueArray* src) {
+void hl_copyValueArray(struct hl_State* H, struct hl_ValueArray* dest, struct hl_ValueArray* src) {
   hl_initValueArray(dest);
 
   dest->count = src->count;
   dest->capacity = src->capacity;
-  dest->values = hl_ALLOCATE(hl_Value, dest->capacity);
+  dest->values = hl_ALLOCATE(H, hl_Value, dest->capacity);
 
   for (s32 i = 0; i < dest->count; i++) {
     dest->values[i] = src->values[i];
   }
 }
 
-void hl_writeValueArray(struct hl_ValueArray* array, hl_Value value) {
+void hl_writeValueArray(struct hl_State* H, struct hl_ValueArray* array, hl_Value value) {
   if (array->capacity < array->count + 1) {
     s32 oldCapacity = array->capacity;
     array->capacity = hl_GROW_CAPACITY(oldCapacity);
     array->values = hl_GROW_ARRAY(
-        hl_Value, array->values, oldCapacity, array->capacity);
+        H, hl_Value, array->values, oldCapacity, array->capacity);
   }
 
   array->values[array->count++] = value;
 }
 
-void hl_reserveValueArray(struct hl_ValueArray* array, s32 size) {
+void hl_reserveValueArray(struct hl_State* H, struct hl_ValueArray* array, s32 size) {
   // Make sure the numbers stays at a power of 2.
   // http://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2Float
   size--;
@@ -51,11 +49,11 @@ void hl_reserveValueArray(struct hl_ValueArray* array, s32 size) {
   s32 oldCapacity = array->capacity;
   array->capacity = newCapacity;
   array->values = hl_GROW_ARRAY(
-      hl_Value, array->values, oldCapacity, array->capacity);
+      H, hl_Value, array->values, oldCapacity, array->capacity);
 }
 
-void hl_freeValueArray(struct hl_ValueArray* array) {
-  hl_FREE_ARRAY(hl_Value, array->values, array->capacity);
+void hl_freeValueArray(struct hl_State* H, struct hl_ValueArray* array) {
+  hl_FREE_ARRAY(H, hl_Value, array->values, array->capacity);
   hl_initValueArray(array);
 }
 

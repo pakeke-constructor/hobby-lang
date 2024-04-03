@@ -50,6 +50,7 @@ struct hl_StructCompiler {
 };
 
 struct hl_Parser {
+  struct hl_State* H;
   struct hl_Token current;
   struct hl_Token previous;
   struct hl_Compiler* compiler;
@@ -58,7 +59,7 @@ struct hl_Parser {
   bool panicMode;
 };
 
-struct hl_Function* hl_compile(struct hl_Parser* parser, const char* source);
-void hl_markCompilerRoots(struct hl_Parser* parser);
+struct hl_Function* hl_compile(struct hl_State* H, struct hl_Parser* parser, const char* source);
+void hl_markCompilerRoots(struct hl_State* H, struct hl_Parser* parser);
 
 #endif // _HOBBYL_COMPILER_H

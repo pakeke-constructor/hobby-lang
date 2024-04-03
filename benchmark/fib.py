@@ -6,5 +6,7 @@ def fib(n):
     return fib(n - 2) + fib(n - 1)
 
 start = time.time()
-print(fib(35))
+
+for i in range(0, 5):
+    print(fib(35))
 print("Time:", time.time() - start)

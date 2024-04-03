@@ -13,5 +13,5 @@ while ((i += 1) <= 5) {
   print(fib(28));
 }
 
-print("Time: " .. toString(clock() - start));
+print(clock() - start);
 

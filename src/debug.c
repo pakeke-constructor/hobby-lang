@@ -2,15 +2,15 @@
 
 #include <stdio.h>
 
-#include "chunk.h"
+#include "opcodes.h"
 #include "object.h"
 #include "value.h"
 
-void hl_disassembleChunk(struct hl_Chunk* chunk, void* functionPointer, const char* name) {
+void hl_disassembleChunk(struct hl_Function* function, void* functionPointer, const char* name) {
   printf("== %s (%p) ==\n", name, functionPointer);
 
-  for (int offset = 0; offset < chunk->count;) {
-    offset = hl_disassembleInstruction(chunk, offset);
+  for (int offset = 0; offset < function->bcCount;) {
+    offset = hl_disassembleInstruction(function, offset);
   }
 }
 
@@ -19,48 +19,48 @@ static s32 simpleInstruction(const char* name, s32 offset) {
   return offset + 1;
 }
 
-static s32 byteInstruction(const char* name, struct hl_Chunk* chunk, s32 offset) {
-  u8 slot = chunk->code[offset + 1];
+static s32 byteInstruction(const char* name, struct hl_Function* function, s32 offset) {
+  u8 slot = function->bc[offset + 1];
   printf("%-16s %4d\n", name, slot);
   return offset + 2; 
 }
 
-static int jumpInstruction(const char* name, s32 sign, struct hl_Chunk* chunk, s32 offset) {
-  u16 jump = (u16)(chunk->code[offset + 1] << 8);
-  jump |= chunk->code[offset + 2];
+static int jumpInstruction(const char* name, s32 sign, struct hl_Function* function, s32 offset) {
+  u16 jump = (u16)(function->bc[offset + 1] << 8);
+  jump |= function->bc[offset + 2];
   printf("%-16s %4d -> %4d\n", name, offset, offset + 3 + sign * jump);
   return offset + 3;
 }
 
-static s32 constantInstruction(const char* name, struct hl_Chunk* chunk, s32 offset) {
-  u8 constant = chunk->code[offset + 1];
+static s32 constantInstruction(const char* name, struct hl_Function* function, s32 offset) {
+  u8 constant = function->bc[offset + 1];
   printf("%-16s %4d '", name, constant);
-  hl_printValue(chunk->constants.values[constant]);
+  hl_printValue(function->constants.values[constant]);
   printf("'\n");
   return offset + 2;
 }
 
-static s32 invokeInstruction(const char* name, struct hl_Chunk* chunk, s32 offset) {
-  u8 constant = chunk->code[offset + 1];
-  u8 argCount = chunk->code[offset + 2];
+static s32 invokeInstruction(const char* name, struct hl_Function* function, s32 offset) {
+  u8 constant = function->bc[offset + 1];
+  u8 argCount = function->bc[offset + 2];
   printf("%-16s (%d args) %4d '", name, argCount, constant);
-  hl_printValue(chunk->constants.values[constant]);
+  hl_printValue(function->constants.values[constant]);
   printf("'\n");
   return offset + 3;
 }
 
-s32 hl_disassembleInstruction(struct hl_Chunk* chunk, s32 offset) {
+s32 hl_disassembleInstruction(struct hl_Function* function, s32 offset) {
   printf("%04d ", offset);
-  if (offset > 0 && chunk->lines[offset] == chunk->lines[offset - 1]) {
+  if (offset > 0 && function->lines[offset] == function->lines[offset - 1]) {
     printf("   | ");
   } else {
-    printf("%4d ", chunk->lines[offset]);
+    printf("%4d ", function->lines[offset]);
   }
 
-  u8 instruction = chunk->code[offset];
+  u8 instruction = function->bc[offset];
   switch (instruction) {
     case hl_OP_CONSTANT:
-      return constantInstruction("OP_CONSTANT", chunk, offset);
+      return constantInstruction("OP_CONSTANT", function, offset);
     case hl_OP_NIL:
       return simpleInstruction("OP_NIL", offset);
     case hl_OP_FALSE:
@@ -70,37 +70,37 @@ s32 hl_disassembleInstruction(struct hl_Chunk* chunk, s32 offset) {
     case hl_OP_POP:
       return simpleInstruction("OP_POP", offset);
     case hl_OP_ARRAY:
-      return byteInstruction("OP_ARRAY", chunk, offset);
+      return byteInstruction("OP_ARRAY", function, offset);
     case hl_OP_GET_SUBSCRIPT:
       return simpleInstruction("OP_GET_SUBSCRIPT", offset);
     case hl_OP_SET_SUBSCRIPT:
       return simpleInstruction("OP_SET_SUBSCRIPT", offset);
     case hl_OP_DEFINE_GLOBAL:
-      return constantInstruction("OP_DEFINE_GLOBAL", chunk, offset);
+      return constantInstruction("OP_DEFINE_GLOBAL", function, offset);
     case hl_OP_GET_GLOBAL:
-      return constantInstruction("OP_GET_GLOBAL", chunk, offset);
+      return constantInstruction("OP_GET_GLOBAL", function, offset);
     case hl_OP_SET_GLOBAL:
-      return constantInstruction("OP_SET_GLOBAL", chunk, offset);
+      return constantInstruction("OP_SET_GLOBAL", function, offset);
     case hl_OP_GET_UPVALUE:
-      return byteInstruction("OP_GET_UPVALUE", chunk, offset);
+      return byteInstruction("OP_GET_UPVALUE", function, offset);
     case hl_OP_SET_UPVALUE:
-      return byteInstruction("OP_SET_UPVALUE", chunk, offset);
+      return byteInstruction("OP_SET_UPVALUE", function, offset);
     case hl_OP_GET_LOCAL:
-      return byteInstruction("OP_GET_LOCAL", chunk, offset);
+      return byteInstruction("OP_GET_LOCAL", function, offset);
     case hl_OP_SET_LOCAL:
-      return byteInstruction("OP_SET_LOCAL", chunk, offset);
+      return byteInstruction("OP_SET_LOCAL", function, offset);
     case hl_OP_INIT_PROPERTY:
-      return byteInstruction("OP_INIT_PROPERTY", chunk, offset);
+      return byteInstruction("OP_INIT_PROPERTY", function, offset);
     case hl_OP_GET_STATIC:
-      return constantInstruction("OP_GET_STATIC_METHOD", chunk, offset);
+      return constantInstruction("OP_GET_STATIC_METHOD", function, offset);
     case hl_OP_PUSH_PROPERTY:
-      return constantInstruction("OP_PUSH_PROPERTY", chunk, offset);
+      return constantInstruction("OP_PUSH_PROPERTY", function, offset);
     case hl_OP_GET_PROPERTY:
-      return constantInstruction("OP_GET_PROPERTY", chunk, offset);
+      return constantInstruction("OP_GET_PROPERTY", function, offset);
     case hl_OP_SET_PROPERTY:
-      return constantInstruction("OP_SET_PROPERTY", chunk, offset);
+      return constantInstruction("OP_SET_PROPERTY", function, offset);
     case hl_OP_DESTRUCT_ARRAY:
-      return byteInstruction("OP_DESTRUCT_ARRAY", chunk, offset);
+      return byteInstruction("OP_DESTRUCT_ARRAY", function, offset);
     case hl_OP_STRUCT_FIELD:
       return simpleInstruction("OP_SET_STRUCT_FIELD", offset);
     case hl_OP_EQUAL:
@@ -132,28 +132,28 @@ s32 hl_disassembleInstruction(struct hl_Chunk* chunk, s32 offset) {
     case hl_OP_NOT:
       return simpleInstruction("OP_NOT", offset);
     case hl_OP_JUMP:
-      return jumpInstruction("OP_JUMP", 1, chunk, offset);
+      return jumpInstruction("OP_JUMP", 1, function, offset);
     case hl_OP_JUMP_IF_FALSE:
-      return jumpInstruction("OP_JUMP_IF_FALSE", 1, chunk, offset);
+      return jumpInstruction("OP_JUMP_IF_FALSE", 1, function, offset);
     case hl_OP_INEQUALITY_JUMP:
-      return jumpInstruction("OP_INEQUALITY_JUMP", 1, chunk, offset);
+      return jumpInstruction("OP_INEQUALITY_JUMP", 1, function, offset);
     case hl_OP_LOOP:
-      return jumpInstruction("OP_LOOP", -1, chunk, offset);
+      return jumpInstruction("OP_LOOP", -1, function, offset);
     case hl_OP_CALL:
-      return byteInstruction("OP_CALL", chunk, offset);
+      return byteInstruction("OP_CALL", function, offset);
     case hl_OP_INSTANCE:
       return simpleInstruction("OP_INSTANCE", offset);
     case hl_OP_CLOSURE: {
       offset++;
-      u8 constant = chunk->code[offset++];
+      u8 constant = function->bc[offset++];
       printf("%-16s %4d ", "OP_CLOSURE", constant);
-      hl_printValue(chunk->constants.values[constant]);
+      hl_printValue(function->constants.values[constant]);
       printf("\n");
-      struct hl_Function* function = hl_AS_FUNCTION(chunk->constants.values[constant]);
+      struct hl_Function* inner = hl_AS_FUNCTION(function->constants.values[constant]);
 
-      for (int j = 0; j < function->upvalueCount; j++) {
-        int isLocal = chunk->code[offset++];
-        int index = chunk->code[offset++];
+      for (int j = 0; j < inner->upvalueCount; j++) {
+        int isLocal = function->bc[offset++];
+        int index = function->bc[offset++];
         printf("%04d      |                     %s %d\n",
             offset - 2, isLocal ? "local" : "upvalue", index);
       }
@@ -165,17 +165,17 @@ s32 hl_disassembleInstruction(struct hl_Chunk* chunk, s32 offset) {
     case hl_OP_RETURN:
       return simpleInstruction("OP_RETURN", offset);
     case hl_OP_ENUM:
-      return constantInstruction("OP_ENUM", chunk, offset);
+      return constantInstruction("OP_ENUM", function, offset);
     case hl_OP_ENUM_VALUE:
-      return byteInstruction("OP_ENUM_VALUE", chunk, offset);
+      return byteInstruction("OP_ENUM_VALUE", function, offset);
     case hl_OP_STRUCT:
-      return constantInstruction("OP_STRUCT", chunk, offset);
+      return constantInstruction("OP_STRUCT", function, offset);
     case hl_OP_METHOD:
-      return constantInstruction("OP_METHOD", chunk, offset);
+      return constantInstruction("OP_METHOD", function, offset);
     case hl_OP_STATIC_METHOD:
-      return constantInstruction("OP_STATIC_METHOD", chunk, offset);
+      return constantInstruction("OP_STATIC_METHOD", function, offset);
     case hl_OP_INVOKE:
-      return invokeInstruction("OP_INVOKE", chunk, offset);
+      return invokeInstruction("OP_INVOKE", function, offset);
     case hl_OP_BREAK:
       return simpleInstruction("OP_BREAK", offset);
     default:

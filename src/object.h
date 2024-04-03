@@ -1,9 +1,9 @@
 #ifndef _HOBBYL_OBJECT_H
 #define _HOBBYL_OBJECT_H
 
+#include <string.h>
+
 #include "common.h"
-#include "chunk.h"
-#include "table.h"
 #include "value.h"
 
 #define hl_OBJ_TYPE(value)        (hl_AS_OBJ(value)->type)
@@ -42,6 +42,126 @@ enum hl_ObjType {
   hl_OBJ_ARRAY,
 };
 
+#ifdef NAN_BOXING
+
+#define hl_SIGN_BIT ((uint64_t)0x8000000000000000)
+#define hl_QNAN     ((u64)0x7ffc000000000000)
+#define hl_TAG_NIL   1
+#define hl_TAG_FALSE 2
+#define hl_TAG_TRUE  3
+
+typedef u64 hl_Value;
+
+#define hl_IS_BOOL(value)     (((value) | 1) == hl_NEW_TRUE)
+#define hl_IS_NIL(value)      ((value) == hl_NEW_NIL)
+#define hl_IS_NUMBER(value)   (((value) & hl_QNAN) != hl_QNAN)
+#define hl_IS_OBJ(value) (((value) & (hl_QNAN | hl_SIGN_BIT)) == (hl_QNAN | hl_SIGN_BIT))
+
+#define hl_AS_BOOL(value)     ((value) == hl_NEW_TRUE)
+#define hl_AS_NUMBER(value)   valueToNumber(value)
+#define hl_AS_OBJ(value) ((struct hl_Obj*)(uintptr_t)((value) & ~(hl_SIGN_BIT | hl_QNAN)))
+
+#define hl_NEW_FALSE          ((hl_Value)(u64)(hl_QNAN | hl_TAG_FALSE))
+#define hl_NEW_TRUE           ((hl_Value)(u64)(hl_QNAN | hl_TAG_TRUE))
+#define hl_NEW_NIL            ((hl_Value)(u64)(hl_QNAN | hl_TAG_NIL))
+#define hl_NEW_BOOL(boolean)  (boolean ? hl_NEW_TRUE : hl_NEW_FALSE)
+#define hl_NEW_NUMBER(number) numberToValue(number)
+#define hl_NEW_OBJ(obj) (hl_Value)(hl_SIGN_BIT | hl_QNAN | (u64)(uintptr_t)(obj))
+
+static inline f64 valueToNumber(hl_Value value) {
+  f64 number;
+  memcpy(&number, &value, sizeof(hl_Value));
+  return number;
+}
+
+static inline hl_Value numberToValue(f64 number) {
+  hl_Value value;
+  memcpy(&value, &number, sizeof(f64));
+  return value;
+}
+
+#else
+
+enum hl_ValueType {
+  hl_VALTYPE_BOOL,
+  hl_VALTYPE_NIL,
+  hl_VALTYPE_NUMBER,
+  hl_VALTYPE_OBJ,
+};
+
+typedef struct {
+  enum hl_ValueType type;
+  union {
+    bool boolean;
+    f64 number;
+    struct hl_Obj* obj;
+  } as;
+} hl_Value;
+
+#define hl_IS_BOOL(value)    ((value).type == hl_VALTYPE_BOOL)
+#define hl_IS_NIL(value)     ((value).type == hl_VALTYPE_NIL)
+#define hl_IS_NUMBER(value)  ((value).type == hl_VALTYPE_NUMBER)
+#define hl_IS_OBJ(value)     ((value).type == hl_VALTYPE_OBJ)
+
+#define hl_AS_BOOL(value)    ((value).as.boolean)
+#define hl_AS_NUMBER(value)  ((value).as.number)
+#define hl_AS_OBJ(value)     ((value).as.obj)
+
+#define hl_NEW_BOOL(value)   ((struct hl_Value){hl_VALTYPE_BOOL, {.boolean = value}})
+#define hl_NEW_NIL           ((struct hl_Value){hl_VALTYPE_NIL, {.number = 0}})
+#define hl_NEW_NUMBER(value) ((struct hl_Value){hl_VALTYPE_NUMBER, {.number = value}})
+#define hl_NEW_OBJ(value)    ((struct hl_Value){hl_VALTYPE_OBJ, {.obj = (struct hl_Obj*)value}})
+
+#endif
+
+struct hl_ValueArray {
+  s32 capacity;
+  s32 count;
+  hl_Value* values;
+};
+
+#define hl_FRAMES_MAX 64
+#define hl_STACK_MAX (hl_FRAMES_MAX * hl_U8_COUNT)
+
+struct hl_Entry {
+  struct hl_String* key;
+  hl_Value value;
+};
+
+struct hl_Table {
+  s32 count;
+  s32 capacity;
+  struct hl_Entry* entries;
+};
+
+struct hl_CallFrame {
+  struct hl_Closure* closure;
+  u8* ip;
+  hl_Value* slots;
+};
+
+struct hl_State {
+  struct hl_CallFrame frames[hl_FRAMES_MAX];
+  s32 frameCount;
+
+  hl_Value stack[hl_STACK_MAX];
+  hl_Value* stackTop;
+  struct hl_Table globals;
+  struct hl_Table strings;
+  struct hl_Upvalue* openUpvalues;
+
+  size_t bytesAllocated;
+  size_t nextGc;
+
+  struct hl_Obj* objects;
+
+  s32 grayCount;
+  s32 grayCapacity;
+  struct hl_Obj** grayStack;
+
+  struct hl_Parser* parser;
+};
+
 struct hl_Obj {
   enum hl_ObjType type;
   bool isMarked;
@@ -52,7 +172,13 @@ struct hl_Function {
   struct hl_Obj obj;
   u8 arity;
   u8 upvalueCount;
-  struct hl_Chunk chunk;
+
+  s32 bcCount;
+  s32 bcCapacity;
+  u8* bc;
+  s32* lines;
+
+  struct hl_ValueArray constants;
   struct hl_String* name;
 };
 
@@ -70,7 +196,8 @@ struct hl_Upvalue {
   struct hl_Upvalue* next;
 };
 
-typedef hl_Value (*hl_CFunction)(s32 argCount, hl_Value* value, bool* failed);
+
+typedef hl_Value (*hl_CFunction)(struct hl_State* H);
 
 struct hl_CFunctionBinding {
   struct hl_Obj obj;
@@ -115,18 +242,31 @@ struct hl_Array {
   struct hl_ValueArray values;
 };
 
-struct hl_Array* hl_newArray();
-struct hl_Enum* hl_newEnum(struct hl_String* name);
-struct hl_Closure* hl_newClosure(struct hl_Function* function);
-struct hl_Upvalue* hl_newUpvalue(hl_Value* slot);
-struct hl_Function* hl_newFunction();
-struct hl_CFunctionBinding* hl_newCFunctionBinding(hl_CFunction cFunc);
+void hl_initValueArray(struct hl_ValueArray* array);
+void hl_copyValueArray(struct hl_State* H, struct hl_ValueArray* dest, struct hl_ValueArray* src);
+void hl_writeValueArray(struct hl_State* H, struct hl_ValueArray* array, hl_Value value);
+void hl_freeValueArray(struct hl_State* H, struct hl_ValueArray* array);
+void hl_reserveValueArray(struct hl_State* H, struct hl_ValueArray* array, s32 size);
+void hl_printValue(hl_Value value);
+bool hl_valuesEqual(hl_Value a, hl_Value b);
+
+struct hl_Array* hl_newArray(struct hl_State* H);
+struct hl_Enum* hl_newEnum(struct hl_State* H, struct hl_String* name);
+struct hl_String* hl_copyString(struct hl_State* H, const char* chars, int length);
+struct hl_String* hl_takeString(struct hl_State* H, char* chars, int length);
+struct hl_Struct* hl_newStruct(struct hl_State* H, struct hl_String* name);
+struct hl_Instance* hl_newInstance(struct hl_State* H, struct hl_Struct* strooct);
+
+struct hl_Closure* hl_newClosure(struct hl_State* H, struct hl_Function* function);
+struct hl_Upvalue* hl_newUpvalue(struct hl_State* H, hl_Value* slot);
+struct hl_Function* hl_newFunction(struct hl_State* H);
+struct hl_CFunctionBinding* hl_newCFunctionBinding(struct hl_State* H, hl_CFunction cFunc);
 struct hl_BoundMethod* hl_newBoundMethod(
-    hl_Value receiver, struct hl_Closure* method);
-struct hl_String* hl_copyString(const char* chars, int length);
-struct hl_String* hl_takeString(char* chars, int length);
-struct hl_Struct* hl_newStruct(struct hl_String* name);
-struct hl_Instance* hl_newInstance(struct hl_Struct* strooct);
+    struct hl_State* H, hl_Value receiver, struct hl_Closure* method);
+void hl_writeBytecode(struct hl_State* H, struct hl_Function* function, u8 byte, s32 line);
+s32 hl_addFunctionConstant(
+    struct hl_State* H, struct hl_Function* function, hl_Value value);
+
 void hl_printObject(hl_Value value);
 
 static inline bool isObjOfType(hl_Value value, enum hl_ObjType type) {

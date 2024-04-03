@@ -5,12 +5,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "chunk.h"
+#include "opcodes.h"
 #include "common.h"
 #include "compiler.h"
 #include "tokenizer.h"
 #include "object.h"
-#include "value.h"
 #include "memory.h"
 
 #ifdef hl_DEBUG_PRINT_CODE
@@ -40,8 +39,8 @@ struct ParseRule {
   enum Precedence precedence;
 };
 
-static struct hl_Chunk* currentChunk(struct hl_Parser* parser) {
-  return &parser->compiler->function->chunk;
+static struct hl_Function* currentFunction(struct hl_Parser* parser) {
+  return parser->compiler->function;
 }
 
 static void errorAt(struct hl_Parser* parser, struct hl_Token* token, const char* message) {
@@ -105,7 +104,7 @@ static bool match(struct hl_Parser* parser, enum hl_TokenType type) {
 }
 
 static void emitByte(struct hl_Parser* parser, u8 byte) {
-  hl_writeChunk(currentChunk(parser), byte, parser->previous.line);
+  hl_writeBytecode(parser->H, currentFunction(parser), byte, parser->previous.line);
 }
 
 static void emitBytes(struct hl_Parser* parser, u8 byte1, u8 byte2) {
@@ -117,23 +116,23 @@ static s32 emitJump(struct hl_Parser* parser, u8 byte) {
   emitByte(parser, byte);
   emitByte(parser, 0xff);
   emitByte(parser, 0xff);
-  return currentChunk(parser)->count - 2;
+  return currentFunction(parser)->bcCount - 2;
 }
 
 static void patchJump(struct hl_Parser* parser, s32 offset) {
-  s32 jump = currentChunk(parser)->count - offset - 2;
+  s32 jump = currentFunction(parser)->bcCount - offset - 2;
   if (jump >= UINT16_MAX) {
     error(parser, "Too much code to jump over. Why?");
   }
 
-  currentChunk(parser)->code[offset] = (jump >> 8) & 0xff;
-  currentChunk(parser)->code[offset + 1] = jump & 0xff;
+  currentFunction(parser)->bc[offset] = (jump >> 8) & 0xff;
+  currentFunction(parser)->bc[offset + 1] = jump & 0xff;
 }
 
 static void emitLoop(struct hl_Parser* parser, s32 loopStart) {
   emitByte(parser, hl_OP_LOOP);
 
-  s32 offset = currentChunk(parser)->count - loopStart + 2;
+  s32 offset = currentFunction(parser)->bcCount - loopStart + 2;
   if (offset > UINT16_MAX) {
     error(parser, "Loop is too big. I'm not quite sure why you made a loop this big.");
   }
@@ -148,7 +147,7 @@ static void emitReturn(struct hl_Parser* parser) {
 }
 
 static u8 makeConstant(struct hl_Parser* parser, hl_Value value) {
-  s32 constant = hl_addConstant(currentChunk(parser), value);
+  s32 constant = hl_addFunctionConstant(parser->H, currentFunction(parser), value);
   if (constant > UINT8_MAX) {
     error(parser, "Too many constants in the global scope or functions.");
     return 0;
@@ -171,7 +170,7 @@ static void initCompiler(struct hl_Parser* parser,
 
   compiler->localCount = 0;
   compiler->scopeDepth = 0;
-  compiler->function = hl_newFunction();
+  compiler->function = hl_newFunction(parser->H);
   compiler->loop = NULL;
   parser->compiler = compiler;
 
@@ -179,9 +178,9 @@ static void initCompiler(struct hl_Parser* parser,
     struct hl_Token name = parser->previous;
     if (name.type == hl_TOKEN_IDENTIFIER) {
       parser->compiler->function->name = hl_copyString(
-          name.start, name.length);
+          parser->H, name.start, name.length);
     } else if (name.type == hl_TOKEN_FUNC) { // lambda
-      parser->compiler->function->name = hl_copyString("@lambda@", 8);
+      parser->compiler->function->name = hl_copyString(parser->H, "@lambda@", 8);
     }
   }
 
@@ -272,9 +271,9 @@ s32 opCodeArgCount(struct hl_Parser* parser, enum hl_OpCode opCode, s32 ip) {
     case hl_OP_ENUM_VALUE:
       return 2;
     case hl_OP_CLOSURE: {
-      u8 index = currentChunk(parser)->code[ip + 1];
+      u8 index = currentFunction(parser)->bc[ip + 1];
       struct hl_Function* function = hl_AS_FUNCTION(
-          currentChunk(parser)->constants.values[index]);
+          currentFunction(parser)->constants.values[index]);
       return 1 + function->upvalueCount * 2;
     }
   }
@@ -299,21 +298,21 @@ static s32 discardLocals(struct hl_Parser* parser) {
 }
 
 static void beginLoop(struct hl_Parser* parser, struct hl_Loop* loop) {
-  loop->start = currentChunk(parser)->count;
+  loop->start = currentFunction(parser)->bcCount;
   loop->scopeDepth = parser->compiler->scopeDepth;
   loop->enclosing = parser->compiler->loop;
   parser->compiler->loop = loop;
 }
 
 static void endLoop(struct hl_Parser* parser, struct hl_Loop* loop) {
-  s32 end = currentChunk(parser)->count;
+  s32 end = currentFunction(parser)->bcCount;
 
   // Go through the whole body of the loop, find any jumps to the end and patch
   // them in.
   for (s32 instruction = loop->bodyStart; instruction < end;) {
-    enum hl_OpCode opCode = currentChunk(parser)->code[instruction];
+    enum hl_OpCode opCode = currentFunction(parser)->bc[instruction];
     if (opCode == hl_OP_BREAK) {
-      currentChunk(parser)->code[instruction] = hl_OP_JUMP;
+      currentFunction(parser)->bc[instruction] = hl_OP_JUMP;
       patchJump(parser, instruction + 1);
       instruction += 3;
     } else {
@@ -360,7 +359,7 @@ static void defineVariable(struct hl_Parser* parser, u8 global) {
 }
 
 static u8 identifierConstant(struct hl_Parser* parser, struct hl_Token* name) {
-  return makeConstant(parser, hl_NEW_OBJ(hl_copyString(name->start, name->length)));
+  return makeConstant(parser, hl_NEW_OBJ(hl_copyString(parser->H, name->start, name->length)));
 }
 
 static bool identifiersEqual(struct hl_Token* a, struct hl_Token* b) {
@@ -370,7 +369,8 @@ static bool identifiersEqual(struct hl_Token* a, struct hl_Token* b) {
   return memcmp(a->start, b->start, a->length) == 0;
 }
 
-static s32 resolveLocal(struct hl_Parser* parser, struct hl_Compiler* compiler, struct hl_Token* name) {
+static s32 resolveLocal(
+    struct hl_Parser* parser, struct hl_Compiler* compiler, struct hl_Token* name) {
   for (s32 i = compiler->localCount - 1; i >= 0; i--) {
     struct hl_Local* local = &compiler->locals[i];
     if (identifiersEqual(name, &local->name)) {
@@ -482,7 +482,8 @@ static void number(struct hl_Parser* parser, hl_UNUSED bool canAssign) {
 static void string(struct hl_Parser* parser, hl_UNUSED bool canAssign) {
   emitConstant(
       parser, 
-      hl_NEW_OBJ(hl_copyString(parser->previous.start + 1, parser->previous.length - 2)));
+      hl_NEW_OBJ(hl_copyString(
+          parser->H, parser->previous.start + 1, parser->previous.length - 2)));
 }
 
 static void namedVariable(struct hl_Parser* parser, struct hl_Token name, bool canAssign) {
@@ -1160,7 +1161,7 @@ static void whileStatement(struct hl_Parser* parser) {
   s32 exitJump = emitJump(parser, hl_OP_JUMP_IF_FALSE);
   emitByte(parser, hl_OP_POP);
 
-  loop.bodyStart = currentChunk(parser)->count;
+  loop.bodyStart = currentFunction(parser)->bcCount;
   statement(parser);
 
   emitLoop(parser, loop.start);
@@ -1175,7 +1176,7 @@ static void loopStatement(struct hl_Parser* parser) {
   struct hl_Loop loop;
   beginLoop(parser, &loop);
 
-  loop.start = currentChunk(parser)->count;
+  loop.start = currentFunction(parser)->bcCount;
   statement(parser);
   emitLoop(parser, loop.start);
 
@@ -1270,9 +1271,11 @@ static void statement(struct hl_Parser* parser) {
   }
 }
 
-struct hl_Function* hl_compile(struct hl_Parser* parser, const char* source) {
+struct hl_Function* hl_compile(struct hl_State* H, struct hl_Parser* parser, const char* source) {
   hl_initTokenizer(source);
 
+  parser->compiler = NULL;
+  parser->H = H;
   parser->hadError = false;
   parser->panicMode = false;
 
@@ -1288,10 +1291,10 @@ struct hl_Function* hl_compile(struct hl_Parser* parser, const char* source) {
   return parser->hadError ? NULL : function;
 }
 
-void hl_markCompilerRoots(struct hl_Parser* parser) {
+void hl_markCompilerRoots(struct hl_State* H, struct hl_Parser* parser) {
   struct hl_Compiler* compiler = parser->compiler;
   while (compiler != NULL) {
-    hl_markObject((struct hl_Obj*)compiler->function);
+    hl_markObject(H, (struct hl_Obj*)compiler->function);
     compiler = compiler->enclosing;
   }
 }

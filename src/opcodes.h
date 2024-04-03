@@ -1,8 +1,5 @@
-#ifndef _HOBBYL_CHUNK_H
-#define _HOBBYL_CHUNK_H
-
-#include "common.h"
-#include "value.h"
+#ifndef _HOBBYL_OPCODES
+#define _HOBBYL_OPCODES
 
 enum hl_OpCode {
   hl_OP_CONSTANT,
@@ -60,17 +57,4 @@ enum hl_OpCode {
   hl_OP_BREAK,
 };
 
-struct hl_Chunk {
-  s32 count;
-  s32 capacity;
-  u8* code;
-  s32* lines;
-  struct hl_ValueArray constants;
-};
-
-void hl_initChunk(struct hl_Chunk* chunk);
-void hl_freeChunk(struct hl_Chunk* chunk);
-void hl_writeChunk(struct hl_Chunk* chunk, u8 byte, s32 line);
-s32 hl_addConstant(struct hl_Chunk* chunk, hl_Value value);
-
-#endif // _HOBBYL_CHUNK_H
+#endif // _HOBBYL_OPCODES

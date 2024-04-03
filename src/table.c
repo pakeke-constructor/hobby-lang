@@ -14,8 +14,8 @@ void hl_initTable(struct hl_Table* table) {
   table->entries = NULL;
 }
 
-void hl_freeTable(struct hl_Table* table) {
-  hl_FREE_ARRAY(struct hl_Entry, table->entries, table->capacity);
+void hl_freeTable(struct hl_State* H, struct hl_Table* table) {
+  hl_FREE_ARRAY(H, struct hl_Entry, table->entries, table->capacity);
   hl_initTable(table);
 }
 
@@ -43,8 +43,8 @@ static struct hl_Entry* findEntry(
   }
 }
 
-static void adjustCapacity(struct hl_Table* table, s32 capacity) {
-  struct hl_Entry* entries = hl_ALLOCATE(struct hl_Entry, capacity);
+static void adjustCapacity(struct hl_State* H, struct hl_Table* table, s32 capacity) {
+  struct hl_Entry* entries = hl_ALLOCATE(H, struct hl_Entry, capacity);
   for (s32 i = 0; i < capacity; i++) {
     entries[i].key = NULL;
     entries[i].value = hl_NEW_NIL;
@@ -63,17 +63,17 @@ static void adjustCapacity(struct hl_Table* table, s32 capacity) {
     table->count++;
   }
 
-  hl_FREE_ARRAY(struct hl_Entry, table->entries, table->capacity);
+  hl_FREE_ARRAY(H, struct hl_Entry, table->entries, table->capacity);
 
   table->entries = entries;
   table->capacity = capacity;
 }
 
 bool hl_tableSet(
-    struct hl_Table* table, struct hl_String* key, hl_Value value) {
+    struct hl_State* H, struct hl_Table* table, struct hl_String* key, hl_Value value) {
   if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
     s32 capacity = hl_GROW_CAPACITY(table->capacity);
-    adjustCapacity(table, capacity);
+    adjustCapacity(H, table, capacity);
   }
 
   struct hl_Entry* entry = findEntry(table->entries, table->capacity, key);
@@ -149,19 +149,19 @@ void hl_tableRemoveUnmarked(struct hl_Table* table) {
   }
 }
 
-void hl_markTable(struct hl_Table* table) {
+void hl_markTable(struct hl_State* H, struct hl_Table* table) {
   for (s32 i = 0; i < table->capacity; i++) {
     struct hl_Entry* entry = &table->entries[i];
-    hl_markObject((struct hl_Obj*)entry->key);
-    hl_markValue(entry->value);
+    hl_markObject(H, (struct hl_Obj*)entry->key);
+    hl_markValue(H, entry->value);
   }
 }
 
-void hl_copyTable(struct hl_Table* dest, struct hl_Table* src) {
+void hl_copyTable(struct hl_State* H, struct hl_Table* dest, struct hl_Table* src) {
   for (s32 i = 0; i < src->capacity; i++) {
     struct hl_Entry* entry = &src->entries[i];
     if (entry->key != NULL) {
-      hl_tableSet(dest, entry->key, entry->value);
+      hl_tableSet(H, dest, entry->key, entry->value);
     }
   }
 }
