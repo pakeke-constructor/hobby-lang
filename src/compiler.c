@@ -628,6 +628,27 @@ static void call(struct Parser* parser, UNUSED bool canAssign) {
   emitBytes(parser, BC_CALL, argCount);
 }
 
+static void ternery(struct Parser* parser, UNUSED bool canAssign) {
+  consume(parser, TOKEN_LPAREN, "Expected '('.");
+  expression(parser);
+  consume(parser, TOKEN_RPAREN, "Expected ')'.");
+
+  s32 thenJump = emitJump(parser, BC_JUMP_IF_FALSE);
+  emitByte(parser, BC_POP);
+
+  expression(parser);
+
+  s32 elseJump = emitJump(parser, BC_JUMP);
+  patchJump(parser, thenJump);
+  emitByte(parser, BC_POP);
+
+  consume(parser, TOKEN_ELSE, "Expected 'else' in ternery operator.");
+
+  expression(parser);
+
+  patchJump(parser, elseJump);
+}
+
 static void dot(struct Parser* parser, bool canAssign) {
   consume(parser, TOKEN_IDENTIFIER, "Expected property name.");
   u8 name = identifierConstant(parser, &parser->previous);
@@ -808,7 +829,7 @@ static struct ParseRule rules[] = {
   [TOKEN_WHILE]         = {NULL,     NULL,       PREC_NONE},
   [TOKEN_FOR]           = {NULL,     NULL,       PREC_NONE},
   [TOKEN_LOOP]          = {NULL,     NULL,       PREC_NONE},
-  [TOKEN_IF]            = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_IF]            = {ternery,  NULL,       PREC_ASSIGNMENT},
   [TOKEN_ELSE]          = {NULL,     NULL,       PREC_NONE},
   [TOKEN_MATCH]         = {NULL,     NULL,       PREC_NONE},
   [TOKEN_CASE]          = {NULL,     NULL,       PREC_NONE},
