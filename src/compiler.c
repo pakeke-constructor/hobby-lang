@@ -558,7 +558,7 @@ static u8 argumentList(struct Parser* parser) {
   if (!check(parser, TOKEN_RPAREN)) {
     do {
       expression(parser);
-      if (argCount == 255) {
+      if (argCount == UINT8_MAX) {
         error(parser, "Can't have more than 255 arguments.");
       }
       argCount++;
@@ -660,7 +660,7 @@ static void function(struct Parser* parser, enum FunctionType type, bool isLambd
     if (!check(parser, TOKEN_RPAREN)) {
       do {
         parser->compiler->function->arity++;
-        if (parser->compiler->function->arity == 255) {
+        if (parser->compiler->function->arity == UINT8_MAX) {
           errorAtCurrent(parser, "Too many parameters. Max is 255.");
         }
         u8 constant = parseVariable(parser, false, "Expected variable name.");
@@ -709,7 +709,7 @@ static void array(struct Parser* parser, UNUSED bool canAssign) {
   if (!check(parser, TOKEN_RBRACKET)) {
     do {
       expression(parser);
-      if (count == 255) {
+      if (count == UINT8_MAX) {
         error(parser, "Can't have more than 255 elements in an array literal.");
       }
       count++;
@@ -856,7 +856,7 @@ static void arrayDestructAssignment(struct Parser* parser) {
   u8 variables[UINT8_MAX];
   u8 variableCount = 0;
   do {
-    if (variableCount == 255) {
+    if (variableCount == UINT8_MAX) {
       error(parser, "Cannot have more than 255 variables per assignment.");
       return;
     }
@@ -1028,7 +1028,7 @@ void enumDeclaration(struct Parser* parser, bool isGlobal) {
   u8 enumValue = 0;
   if (!check(parser, TOKEN_RBRACE)) {
     do {
-      if (enumValue == 255) {
+      if (enumValue == UINT8_MAX) {
         error(parser, "Cannot have more than 255 enum values.");
       }
 
@@ -1094,8 +1094,8 @@ void matchStatement(struct Parser* parser) {
   expression(parser);
   consume(parser, TOKEN_RPAREN, "Expected ')'.");
 
-  s32 caseEnds[256];
-  s32 caseCount = 0;
+  s32 caseEnds[UINT8_MAX];
+  u8 caseCount = 0;
 
   consume(parser, TOKEN_LBRACE, "Expected '{'");
 
@@ -1108,10 +1108,11 @@ void matchStatement(struct Parser* parser) {
       consume(parser, TOKEN_RIGHT_ARROW, "Expected '=>' after case expression.");
       statement(parser);
 
-      caseEnds[caseCount++] = emitJump(parser, BC_JUMP);
-      if (caseCount == 256) {
-        error(parser, "Cannot have more than 256 cases in a single match statement.");
+      if (caseCount == UINT8_MAX) {
+        error(parser, "Cannot have more than 255 cases in a single match statement.");
       }
+
+      caseEnds[caseCount++] = emitJump(parser, BC_JUMP);
 
       patchJump(parser, inequalityJump);
     } while (match(parser, TOKEN_CASE));
