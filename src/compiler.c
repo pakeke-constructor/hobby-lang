@@ -743,52 +743,65 @@ static void or_(struct Parser* parser, UNUSED bool canAssign) {
 }
 
 static struct ParseRule rules[] = {
-  [TOKEN_LPAREN]        = {grouping, call,       PREC_CALL},
-  [TOKEN_RPAREN]        = {NULL,     NULL,       PREC_NONE},
-  [TOKEN_LBRACE]        = {NULL,     NULL,       PREC_NONE},
-  [TOKEN_RBRACE]        = {NULL,     NULL,       PREC_NONE},
-  [TOKEN_LBRACKET]      = {array,    subscript,  PREC_CALL},
-  [TOKEN_RBRACKET]      = {NULL,     NULL,       PREC_NONE},
-  [TOKEN_COMMA]         = {NULL,     NULL,       PREC_NONE},
-  [TOKEN_DOT]           = {NULL,     dot,        PREC_CALL},
-  [TOKEN_SEMICOLON]     = {NULL,     NULL,       PREC_NONE},
-  [TOKEN_COLON]         = {NULL,     staticDot,  PREC_CALL},
-  [TOKEN_MINUS]         = {unary,    binary,     PREC_TERM},
-  [TOKEN_PLUS]          = {NULL,     binary,     PREC_TERM},
-  [TOKEN_STAR]          = {NULL,     binary,     PREC_FACTOR},
-  [TOKEN_SLASH]         = {NULL,     binary,     PREC_FACTOR},
-  [TOKEN_STAR_STAR]     = {NULL,     binary,     PREC_EXPONENT},
-  [TOKEN_PERCENT]       = {NULL,     binary,     PREC_FACTOR},
-  [TOKEN_DOT_DOT]       = {NULL,     binary,     PREC_TERM},
-  [TOKEN_EQUAL]         = {NULL,     NULL,       PREC_NONE},
-  [TOKEN_EQUAL_EQUAL]   = {NULL,     binary,     PREC_EQUALITY},
-  [TOKEN_BANG]          = {unary,    NULL,       PREC_NONE},
-  [TOKEN_BANG_EQUAL]    = {NULL,     binary,     PREC_EQUALITY},
-  [TOKEN_LESS]          = {NULL,     binary,     PREC_COMPARISON},
-  [TOKEN_LESS_EQUAL]    = {NULL,     binary,     PREC_COMPARISON},
-  [TOKEN_GREATER]       = {NULL,     binary,     PREC_COMPARISON},
-  [TOKEN_GREATER_EQUAL] = {NULL,     binary,     PREC_COMPARISON},
-  [TOKEN_AMP_AMP]       = {NULL,     and_,       PREC_AND},
-  [TOKEN_PIPE_PIPE]     = {NULL,     or_,        PREC_OR},
-  [TOKEN_VAR]           = {NULL,     NULL,       PREC_NONE},
-  [TOKEN_WHILE]         = {NULL,     NULL,       PREC_NONE},
-  [TOKEN_FOR]           = {NULL,     NULL,       PREC_NONE},
-  [TOKEN_LOOP]          = {NULL,     NULL,       PREC_NONE},
-  [TOKEN_IF]            = {ternery,  NULL,       PREC_ASSIGNMENT},
-  [TOKEN_ELSE]          = {NULL,     NULL,       PREC_NONE},
-  [TOKEN_MATCH]         = {NULL,     NULL,       PREC_NONE},
-  [TOKEN_CASE]          = {NULL,     NULL,       PREC_NONE},
-  [TOKEN_STRUCT]        = {NULL,     NULL,       PREC_NONE},
-  [TOKEN_SELF]          = {self,     NULL,       PREC_NONE},
-  [TOKEN_FUNC]          = {lambda,   NULL,       PREC_NONE},
-  [TOKEN_TRUE]          = {literal,  NULL,       PREC_NONE},
-  [TOKEN_FALSE]         = {literal,  NULL,       PREC_NONE},
-  [TOKEN_NIL]           = {literal,  NULL,       PREC_NONE},
-  [TOKEN_IDENTIFIER]    = {variable, NULL,       PREC_NONE},
-  [TOKEN_STRING]        = {string,   NULL,       PREC_NONE},
-  [TOKEN_NUMBER]        = {number,   NULL,       PREC_NONE},
-  [TOKEN_ERROR]         = {NULL,     NULL,       PREC_NONE},
-  [TOKEN_EOF]           = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_LPAREN]          = {grouping, call,       PREC_CALL},
+  [TOKEN_RPAREN]          = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_LBRACE]          = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_RBRACE]          = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_LBRACKET]        = {array,    subscript,  PREC_CALL},
+  [TOKEN_RBRACKET]        = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_COMMA]           = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_DOT]             = {NULL,     dot,        PREC_CALL},
+  [TOKEN_SEMICOLON]       = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_COLON]           = {NULL,     staticDot,  PREC_CALL},
+  [TOKEN_MINUS]           = {unary,    binary,     PREC_TERM},
+  [TOKEN_PLUS]            = {NULL,     binary,     PREC_TERM},
+  [TOKEN_STAR]            = {NULL,     binary,     PREC_FACTOR},
+  [TOKEN_SLASH]           = {NULL,     binary,     PREC_FACTOR},
+  [TOKEN_STAR_STAR]       = {NULL,     binary,     PREC_EXPONENT},
+  [TOKEN_PERCENT]         = {NULL,     binary,     PREC_FACTOR},
+  [TOKEN_DOT_DOT]         = {NULL,     binary,     PREC_TERM},
+  [TOKEN_EQUAL]           = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_EQUAL_EQUAL]     = {NULL,     binary,     PREC_EQUALITY},
+  [TOKEN_BANG]            = {unary,    NULL,       PREC_NONE},
+  [TOKEN_BANG_EQUAL]      = {NULL,     binary,     PREC_EQUALITY},
+  [TOKEN_LESS]            = {NULL,     binary,     PREC_COMPARISON},
+  [TOKEN_LESS_EQUAL]      = {NULL,     binary,     PREC_COMPARISON},
+  [TOKEN_GREATER]         = {NULL,     binary,     PREC_COMPARISON},
+  [TOKEN_GREATER_EQUAL]   = {NULL,     binary,     PREC_COMPARISON},
+  [TOKEN_AMP_AMP]         = {NULL,     and_,       PREC_AND},
+  [TOKEN_PIPE_PIPE]       = {NULL,     or_,        PREC_OR},
+  [TOKEN_VAR]             = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_WHILE]           = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_FOR]             = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_LOOP]            = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_IF]              = {ternery,  NULL,       PREC_ASSIGNMENT},
+  [TOKEN_ELSE]            = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_MATCH]           = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_CASE]            = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_STRUCT]          = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_SELF]            = {self,     NULL,       PREC_NONE},
+  [TOKEN_FUNC]            = {lambda,   NULL,       PREC_NONE},
+  [TOKEN_TRUE]            = {literal,  NULL,       PREC_NONE},
+  [TOKEN_FALSE]           = {literal,  NULL,       PREC_NONE},
+  [TOKEN_NIL]             = {literal,  NULL,       PREC_NONE},
+  [TOKEN_IDENTIFIER]      = {variable, NULL,       PREC_NONE},
+  [TOKEN_STRING]          = {string,   NULL,       PREC_NONE},
+  [TOKEN_NUMBER]          = {number,   NULL,       PREC_NONE},
+  [TOKEN_ERROR]           = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_RETURN]          = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_ENUM]            = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_GLOBAL]          = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_BREAK]           = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_CONTINUE]        = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_STATIC]          = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_DOT_DOT_EQUAL]   = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_PLUS_EQUAL]      = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_MINUS_EQUAL]     = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_STAR_EQUAL]      = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_SLASH_EQUAL]     = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_PERCENT_EQUAL]   = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_STAR_STAR_EQUAL] = {NULL,     NULL,       PREC_NONE},
+  [TOKEN_EOF]             = {NULL,     NULL,       PREC_NONE},
 };
 
 static void parsePrecedence(struct Parser* parser, enum Precedence precedence) {
@@ -1139,6 +1152,7 @@ void matchStatement(struct Parser* parser) {
 static void continueStatement(struct Parser* parser) {
   if (parser->compiler->loop == NULL) {
     error(parser, "Cannot use 'continue' outside of a loop.");
+    return;
   }
 
   struct Loop* loop = parser->compiler->loop;
@@ -1159,6 +1173,7 @@ static void continueStatement(struct Parser* parser) {
 static void breakStatement(struct Parser* parser) {
   if (parser->compiler->loop == NULL) {
     error(parser, "Cannot use 'break' outside of a loop.");
+    return;
   }
 
   struct Loop* loop = parser->compiler->loop;
@@ -1191,7 +1206,8 @@ static void whileStatement(struct Parser* parser) {
   expression(parser);
   consume(parser, TOKEN_RPAREN, "Expected ')' after while condition.");
 
-  if (match(parser, TOKEN_IDENTIFIER)) {
+  if (match(parser, TOKEN_COLON)) {
+    consume(parser, TOKEN_IDENTIFIER, "Expected loop label.");
     loop.isNamed = true;
     loop.name = parser->previous;
   }
@@ -1314,6 +1330,7 @@ static void statement(struct Parser* parser) {
 struct Function* compile(struct State* H, struct Parser* parser, const char* source) {
   parser->H = H;
   parser->compiler = NULL;
+  parser->structCompiler = NULL;
   parser->tokenizer = NULL;
   parser->hadError = false;
   parser->panicMode = false;

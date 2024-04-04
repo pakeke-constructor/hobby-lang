@@ -1,0 +1,7 @@
+struct Foo {
+  func this() {
+    return Foo;
+  }
+}
+
+print(Foo {}.this()); // expect: <struct Foo>

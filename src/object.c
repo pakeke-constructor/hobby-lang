@@ -179,7 +179,7 @@ static void printFunction(struct Function* function) {
     printf("<script>");
     return;
   }
-  printf("<function %s %p>", function->name->chars, function);
+  printf("<function %s>", function->name->chars);
 }
 
 void printObject(Value value) {
@@ -197,7 +197,7 @@ void printObject(Value value) {
       printFunction(AS_BOUND_METHOD(value)->method->function);
       break;
     case OBJ_CFUNCTION:
-      printf("<cfunction %p>", AS_OBJ(value));
+      printf("<cfunction>");
       break;
     case OBJ_STRING:
       printf("%s", AS_CSTRING(value));
@@ -206,8 +206,8 @@ void printObject(Value value) {
       printf("<struct %s>", AS_STRUCT(value)->name->chars);
       break;
     case OBJ_INSTANCE:
-      printf("<%s instance %p>",
-          AS_INSTANCE(value)->strooct->name->chars, AS_OBJ(value));
+      printf("<%s instance>",
+          AS_INSTANCE(value)->strooct->name->chars);
       break;
     case OBJ_ENUM:
       printf("<enum %s>", AS_ENUM(value)->name->chars);

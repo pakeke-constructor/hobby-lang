@@ -53,6 +53,12 @@ static void runFile(struct State* H, const char* path) {
   enum InterpretResult result = interpret(H, source);
   free(source);
 
+  if (result == COMPILE_ERR) {
+    exit(65);
+  }
+  if (result == RUNTIME_ERR) {
+    exit(70);
+  }
   if (result != INTERPRET_OK) {
     exit(1);
   }
