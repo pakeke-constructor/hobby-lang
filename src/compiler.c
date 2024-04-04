@@ -286,6 +286,7 @@ static void endScope(struct Parser* parser) {
   parser->compiler->localCount -= discarded;
 }
 
+static void synchronize(struct Parser* parser);
 static void expression(struct Parser* parser);
 static void statement(struct Parser* parser);
 static void declaration(struct Parser* parser);
@@ -1012,6 +1013,11 @@ static void structDeclaration(struct Parser* parser, bool isGlobal) {
       consume(parser, TOKEN_FUNC, "Expected 'func' after 'static'.");
       method(parser, true);
     }
+
+    // Prevents an infinite loop if you mess up some syntax.
+    if (parser->panicMode) {
+      synchronize(parser);
+    }
   }
 
   consume(parser, TOKEN_RBRACE, "Unterminated struct declaration.");
@@ -1266,6 +1272,7 @@ static void synchronize(struct Parser* parser) {
       case TOKEN_FUNC:
       case TOKEN_ENUM:
       case TOKEN_MATCH:
+      case TOKEN_GLOBAL:
       case TOKEN_VAR:
       case TOKEN_FOR:
       case TOKEN_IF:
