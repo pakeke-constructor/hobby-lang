@@ -45,7 +45,7 @@ def run_benchmark(benchmark):
 
     print(f"{benchmark.upper()} RESULTS")
     for i in LANGUAGES:
-        print(f"{i[0].title()} average:\t{times[i[0]]}")
+        print(f"{i[0].title()} average:\t{round(times[i[0]] * 1000)}ms")
     times = {}
 
 
